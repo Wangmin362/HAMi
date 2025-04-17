@@ -119,9 +119,11 @@ func AddDefaultResourcesToConfig(config *nvidia.DeviceConfig) error {
 	})
 	fmt.Println("config=", config.Resources.GPUs)
 	switch *config.Flags.MigStrategy {
-	case spec.MigStrategySingle:
+	case spec.MigStrategySingle: // 所谓MIG Single其实就是将一张GPU划分为多个相同规格的vGPU, 所有的vGPU都是相同的规格
 		return config.Resources.AddMIGResource("*", "gpu")
-	case spec.MigStrategyMixed:
+	case spec.MigStrategyMixed: // 所谓MIG Mixed其实就是将一张GPU划分为多个相同规格的vGPU, 每个vGPU的规格可以不同
+		// nvml即nvidia management library, 是NVIDIA提供的一个库, 用于管理和监控GPU
+		// 这个库可以用来获取GPU的信息, 比如GPU的数量, GPU的型号, GPU的内存大小, GPU的显存大小, GPU的温度, GPU的功耗, GPU的利用率等等
 		hasNVML, reason := info.New().HasNvml()
 		if !hasNVML {
 			klog.Warningf("mig-strategy=%q is only supported with NVML", spec.MigStrategyMixed)
@@ -152,6 +154,7 @@ func AddDefaultResourcesToConfig(config *nvidia.DeviceConfig) error {
 			if profileInfo.C != profileInfo.G {
 				return nil
 			}
+			// TODO 这里应该就是不同规格的GPU，可能需要查看英伟达GPU使用文档才知道这玩意的使用姿势
 			resourceName := strings.ReplaceAll("mig-"+p.String(), "+", ".")
 			return config.Resources.AddMIGResource(p.String(), resourceName)
 		})

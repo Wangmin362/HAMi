@@ -106,6 +106,8 @@ func generateDeviceConfigFromNvidia(cfg *spec.Config, c *cli.Context, flags []cl
 		for _, n := range flag.Names() {
 			// Common flags
 			if strings.Compare(n, "config-file") == 0 {
+				// 这里主要是想更新ConfigFile配置参数，使用命令行传进来的config-file参数
+				// TODO 如果命令行没有传递config-file参数，我估计这个参数有一个默认值，默认值是啥呢？
 				updateFromCLIFlag(&plugin.ConfigFile, c, n)
 			}
 		}

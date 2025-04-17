@@ -64,6 +64,7 @@ func init() {
 
 // NvidiaDevicePlugin implements the Kubernetes device plugin API
 type NvidiaDevicePlugin struct {
+	// TODO 这里的资源管理器我猜测是管理不同的vGPU,如果是nvidia gpu mixed模式，在一个节点上就会出现不同的gpu规格，每一种规格可以看成是一种计算资源
 	rm                   rm.ResourceManager
 	config               *nvidia.DeviceConfig
 	deviceListEnvvar     string
@@ -71,6 +72,9 @@ type NvidiaDevicePlugin struct {
 	socket               string
 	schedulerConfig      nvidia.NvidiaConfig
 
+	// cdi即container device interface, 是一种标准, 用于在容器中管理设备, 比如GPU, 网卡, 声卡等等
+	// 是英伟达和其他厂商共同制定的标准, 用于在容器中管理设备, 比如GPU, 网卡, 声卡等等
+	// 目前cdi已经成为了k8s的标准, 可以在k8s中使用cdi来管理设备, 比如GPU, 网卡, 声卡等等
 	cdiHandler          cdi.Interface
 	cdiEnabled          bool
 	cdiAnnotationPrefix string

@@ -45,6 +45,12 @@ func NewPluginManager(config *nvidia.DeviceConfig) (manager.Interface, error) {
 		return nil, fmt.Errorf("invalid device list strategy: %v", err)
 	}
 
+	// CDI是container device interface的缩写，用于容器设备的抽象和管理。
+	// 它提供了一种统一的方式来描述和管理容器中的设备，包括GPU、FPGA和其他类型的设备。
+	// CDI的目标是简化容器设备的管理和使用，使得容器化环境中的设备管理更加高效和可靠。
+	// CDI的核心概念包括设备插件（Device Plugin）、设备资源描述符（Device Resource Descriptor）和设备资源分配器（Device Resource Allocator）。
+	// 设备插件负责发现和管理容器中的设备，设备资源描述符描述了设备的属性和功能，设备资源分配器负责将设备资源分配给容器。
+	// CDI的设计目标是提供一种灵活、可扩展的设备管理方式，使得容器环境中的设备管理更加简单和高效。
 	cdiEnabled := deviceListStrategies.IsCDIEnabled()
 
 	cdiHandler, err := cdi.New(

@@ -45,6 +45,7 @@ func main() {
 	c.Usage = "NVIDIA device plugin for Kubernetes"
 	c.Version = info.GetVersionString()
 	c.Action = func(ctx *cli.Context) error {
+		// 核心逻辑
 		return start(ctx, c.Flags)
 	}
 
@@ -156,6 +157,8 @@ func loadConfig(c *cli.Context, flags []cli.Flag) (*spec.Config, error) {
 func start(c *cli.Context, flags []cli.Flag) error {
 	klog.Info("Starting FS watcher.")
 	util.NodeName = os.Getenv(util.NodeNameEnvName)
+	// 1. 这里主要是监听/var/lib/kubelet/device-plugins目录的变化
+	// 2. 当kubelet.sock文件被删除时，所有的设备插件必须要监听到这个事件重新向kubelet device plugin manager注册
 	watcher, err := newFSWatcher(kubeletdevicepluginv1beta1.DevicePluginPath)
 	if err != nil {
 		return fmt.Errorf("failed to create FS watcher: %v", err)
@@ -170,10 +173,12 @@ func start(c *cli.Context, flags []cli.Flag) error {
 
 	var restarting bool
 	var restartTimeout <-chan time.Time
+	// TODO Q：什么情况下会有多个device-plugin接口实现？
 	var plugins []plugin.Interface
 restart:
 	// If we are restarting, stop plugins from previous run.
 	if restarting {
+		// 停止所有的device plugin server, 因为后面需要向kubelet plugin manager重新注册
 		err := stopPlugins(plugins)
 		if err != nil {
 			return fmt.Errorf("error stopping plugins from previous run: %v", err)
@@ -181,12 +186,13 @@ restart:
 	}
 
 	klog.Info("Starting Plugins.")
+	// TODO 核心在这里
 	plugins, restartPlugins, err := startPlugins(c, flags, restarting)
 	if err != nil {
 		return fmt.Errorf("error starting plugins: %v", err)
 	}
 
-	if restartPlugins {
+	if restartPlugins { // 如果为true，说明至少有一个插件启动失败，30后需要重新启动
 		klog.Info("Failed to start one or more plugins. Retrying in 30s...")
 		restartTimeout = time.After(30 * time.Second)
 	}
@@ -205,6 +211,7 @@ restart:
 		// 'kubeletdevicepluginv1beta1.KubeletSocket' file. When this occurs, restart this loop,
 		// restarting all of the plugins in the process.
 		case event := <-watcher.Events:
+			// 如果监听到kubelet.sock文件被创建，说明kubelet重启了，需要重新注册device plugin
 			if event.Name == kubeletdevicepluginv1beta1.KubeletSocket && event.Op&fsnotify.Create == fsnotify.Create {
 				klog.Infof("inotify: %s created, restarting.", kubeletdevicepluginv1beta1.KubeletSocket)
 				goto restart
@@ -219,6 +226,7 @@ restart:
 		// signals, exit the loop and exit the program.
 		case s := <-sigs:
 			switch s {
+			// 只有收到SIGHUP信号时需要重启，其它信号都直接退出
 			case syscall.SIGHUP:
 				klog.Info("Received SIGHUP, restarting.")
 				goto restart
@@ -239,14 +247,17 @@ exit:
 func startPlugins(c *cli.Context, flags []cli.Flag, restarting bool) ([]plugin.Interface, bool, error) {
 	// Load the configuration file
 	klog.Info("Loading configuration.")
+	// 加载nvidia gpu配置文件
 	config, err := loadConfig(c, flags)
 	if err != nil {
 		return nil, false, fmt.Errorf("unable to load config: %v", err)
 	}
+	// 禁用某些配置  TODO 这里为什么要禁用？
 	disableResourceRenamingInConfig(config)
 
 	/*Loading config files*/
 	//fmt.Println("NodeName=", config.NodeName)
+	// 获取nvidia device-plugin的配置
 	devConfig, err := generateDeviceConfigFromNvidia(config, c, flags)
 	if err != nil {
 		klog.Errorf("failed to load config file %s", err.Error())
@@ -255,6 +266,7 @@ func startPlugins(c *cli.Context, flags []cli.Flag, restarting bool) ([]plugin.I
 
 	// Update the configuration file with default resources.
 	klog.Info("Updating config with default resource matching patterns.")
+	// 根据MIG的single, mixed不同的策略，设置不同的资源匹配规则
 	err = rm.AddDefaultResourcesToConfig(&devConfig)
 	if err != nil {
 		return nil, false, fmt.Errorf("unable to add default resources to config: %v", err)
