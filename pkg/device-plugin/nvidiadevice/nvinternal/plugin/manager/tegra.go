@@ -34,6 +34,9 @@ func (m *tegramanager) GetPlugins() ([]plugin.Interface, error) {
 
 	var plugins []plugin.Interface
 	for _, r := range rms {
+		// 简单来说，每一种资源都会有一个对应的device-plugin，
+		// 对于gpu single这种我觉得比较简单，只需要一个device-plugin，但是对于gpu mixed就需要启用多个。
+		// TODO mig这种动态划分特性如何支持的？ 在容器真正使用之前应该已经确定好了资源吧
 		plugins = append(plugins, plugin.NewNvidiaDevicePlugin(m.config, r, m.cdiHandler, m.cdiEnabled))
 	}
 	return plugins, nil

@@ -24,11 +24,14 @@ import (
 
 // New is a factory method that creates a CDI handler for creating CDI specs.
 func New(opts ...Option) (Interface, error) {
+	// nvmllib
 	infolib := info.New()
 
+	// 加载libnvidia-ml.so.1，判断当前节点上是否可以调用nvml库函数
 	hasNVML, _ := infolib.HasNvml()
 	if !hasNVML {
 		klog.Warning("No valid resources detected, creating a null CDI handler")
+		// TODO 如果没有开启nvml，能够正常使用么？
 		return NewNullHandler(), nil
 	}
 

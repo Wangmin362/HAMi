@@ -69,8 +69,9 @@ type NvidiaDevicePlugin struct {
 	config               *nvidia.DeviceConfig
 	deviceListEnvvar     string
 	deviceListStrategies spec.DeviceListStrategies
-	socket               string
-	schedulerConfig      nvidia.NvidiaConfig
+	// 当前device-plugin插件的socket地址, 用于k8s和device-plugin插件之间的通信
+	socket          string
+	schedulerConfig nvidia.NvidiaConfig
 
 	// cdi即container device interface, 是一种标准, 用于在容器中管理设备, 比如GPU, 网卡, 声卡等等
 	// 是英伟达和其他厂商共同制定的标准, 用于在容器中管理设备, 比如GPU, 网卡, 声卡等等
@@ -80,6 +81,7 @@ type NvidiaDevicePlugin struct {
 	cdiAnnotationPrefix string
 
 	server *grpc.Server
+	// TODO 这个变量命名有问题，应该定义为：unhealthy
 	health chan *rm.Device
 	stop   chan interface{}
 }
@@ -172,6 +174,7 @@ func (plugin *NvidiaDevicePlugin) Devices() rm.Devices {
 func (plugin *NvidiaDevicePlugin) Start() error {
 	plugin.initialize()
 
+	// 启动本地device-plugin服务，确保在向kubelet注册之前grpc服务已经启动成功
 	err := plugin.Serve()
 	if err != nil {
 		klog.Infof("Could not start device plugin for '%s': %s", plugin.rm.Resource(), err)
@@ -180,6 +183,7 @@ func (plugin *NvidiaDevicePlugin) Start() error {
 	}
 	klog.Infof("Starting to serve '%s' on %s", plugin.rm.Resource(), plugin.socket)
 
+	// 这里本质上就是调用了device-plugin的Register函数, 用于将device-plugin注册到k8s中
 	err = plugin.Register()
 	if err != nil {
 		klog.Infof("Could not register device plugin: %s", err)
@@ -188,6 +192,8 @@ func (plugin *NvidiaDevicePlugin) Start() error {
 	}
 	klog.Infof("Registered device plugin for '%s' with Kubelet", plugin.rm.Resource())
 
+	// 启动一个协程，用于定期刷新NPU卡的健康状态，如果device-plugin没有定期上报，调度器会认为节点挂了，不会把
+	// 任务调度到该节点上
 	go func() {
 		err := plugin.rm.CheckHealth(plugin.stop, plugin.health)
 		if err != nil {
@@ -196,6 +202,7 @@ func (plugin *NvidiaDevicePlugin) Start() error {
 	}()
 
 	go func() {
+		// 本质上就是在维护当前设备的状态信息，核心还是通过调用底层驱动提供的API，然后把设备信息更新到Node资源的注解当中
 		plugin.WatchAndRegister()
 	}()
 
@@ -257,6 +264,7 @@ func (plugin *NvidiaDevicePlugin) Serve() error {
 	}()
 
 	// Wait for server to start by launching a blocking connexion
+	// 确保本地的device-plugin GRPC服务已经启动，否则如果五秒钟之后还没有启动成功，就会报错
 	conn, err := plugin.dial(plugin.socket, 5*time.Second)
 	if err != nil {
 		return err
@@ -301,13 +309,14 @@ func (plugin *NvidiaDevicePlugin) GetDevicePluginOptions(context.Context, *kubel
 
 // ListAndWatch lists devices and update that list according to the health status
 func (plugin *NvidiaDevicePlugin) ListAndWatch(e *kubeletdevicepluginv1beta1.Empty, s kubeletdevicepluginv1beta1.DevicePlugin_ListAndWatchServer) error {
+	// 把当前节点所有的设备都返回
 	s.Send(&kubeletdevicepluginv1beta1.ListAndWatchResponse{Devices: plugin.apiDevices()})
 
 	for {
 		select {
 		case <-plugin.stop:
 			return nil
-		case d := <-plugin.health:
+		case d := <-plugin.health: // 但凡有一个设备不健康了，此时就需要告知kubelet节点最新的设备状态
 			// FIXME: there is no way to recover from the Unhealthy state.
 			d.Health = kubeletdevicepluginv1beta1.Unhealthy
 			klog.Infof("'%s' device marked unhealthy: %s", plugin.rm.Resource(), d.ID)

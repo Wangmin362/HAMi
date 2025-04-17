@@ -93,12 +93,14 @@ func parseNvidiaNumaInfo(idx int, nvidiaTopoStr string) (int, error) {
 }
 
 func (plugin *NvidiaDevicePlugin) getAPIDevices() *[]*api.DeviceInfo {
+	// TODO 通过资源管理器获取设备
 	devs := plugin.Devices()
 	klog.V(5).InfoS("getAPIDevices", "devices", devs)
 	nvml.Init()
 	res := make([]*api.DeviceInfo, 0, len(devs))
 	idx := 0
 	for idx < len(devs) {
+		// 底层调用的nvidia驱动查询的设备信息
 		ndev, ret := nvml.DeviceGetHandleByIndex(idx)
 		//ndev, err := nvml.NewDevice(uint(idx))
 		//klog.V(3).Infoln("ndev type=", ndev.Model)
@@ -125,8 +127,10 @@ func (plugin *NvidiaDevicePlugin) getAPIDevices() *[]*api.DeviceInfo {
 			panic(0)
 		}
 
+		// 计算内存大小，单位为MB
 		registeredmem := int32(memoryTotal / 1024 / 1024)
 		if plugin.schedulerConfig.DeviceMemoryScaling != 1 {
+			// TODO 这个是类似cpu超频的感觉，比如可以把24GB的内存，超到48GB
 			registeredmem = int32(float64(registeredmem) * plugin.schedulerConfig.DeviceMemoryScaling)
 		}
 		klog.Infoln("MemoryScaling=", plugin.schedulerConfig.DeviceMemoryScaling, "registeredmem=", registeredmem)
@@ -162,7 +166,9 @@ func (plugin *NvidiaDevicePlugin) getAPIDevices() *[]*api.DeviceInfo {
 	return &res
 }
 
+// RegistrInAnnotation 本质上就是在维护当前设备的状态信息，核心还是通过调用底层驱动提供的API，然后把设备信息更新到Node资源的注解当中
 func (plugin *NvidiaDevicePlugin) RegistrInAnnotation() error {
+	// 调用底层驱动的API获取设备的信息
 	devices := plugin.getAPIDevices()
 	klog.InfoS("start working on the devices", "devices", devices)
 	annos := make(map[string]string)
@@ -171,6 +177,8 @@ func (plugin *NvidiaDevicePlugin) RegistrInAnnotation() error {
 		klog.Errorln("get node error", err.Error())
 		return err
 	}
+	// 可以认为是设备信息的序列化，需要把当前节点的设备信息更新到Node资源的注解当中
+	// TODO 这个注解是被谁使用的？ 什么时候有用？
 	encodeddevices := util.EncodeNodeDevices(*devices)
 	annos[nvidia.HandshakeAnnos] = "Reported " + time.Now().String()
 	annos[nvidia.RegisterAnnos] = encodeddevices
@@ -183,11 +191,13 @@ func (plugin *NvidiaDevicePlugin) RegistrInAnnotation() error {
 	return err
 }
 
+// WatchAndRegister 本质上就是在维护当前设备的状态信息，核心还是通过调用底层驱动提供的API，然后把设备信息更新到Node资源的注解当中
 func (plugin *NvidiaDevicePlugin) WatchAndRegister() {
 	klog.Info("Starting WatchAndRegister")
 	errorSleepInterval := time.Second * 5
 	successSleepInterval := time.Second * 30
 	for {
+		// 本质上就是在维护当前设备的状态信息，核心还是通过调用底层驱动提供的API，然后把设备信息更新到Node资源的注解当中
 		err := plugin.RegistrInAnnotation()
 		if err != nil {
 			klog.Errorf("Failed to register annotation: %v", err)

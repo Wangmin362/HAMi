@@ -57,11 +57,13 @@ func New(opts ...Option) (Interface, error) {
 		m.cdiHandler = cdi.NewNullHandler()
 	}
 
+	// 判断当前是nvml模式，还是tegra模式
 	mode, err := m.resolveMode()
 	if err != nil {
 		return nil, err
 	}
 
+	// 如果只有nvml支持CDI功能，或者说CDI功能的开启需要调用nvml函数库去获取某些信息
 	if mode != "nvml" && m.cdiEnabled {
 		klog.Warning("CDI is not supported; disabling CDI.")
 		m.cdiEnabled = false
@@ -97,6 +99,7 @@ func New(opts ...Option) (Interface, error) {
 	return nil, fmt.Errorf("unknown mode: %v", mode)
 }
 
+// TODO 代码重复，应该可以优化下，感觉基本上是相似的
 func (m *manager) resolveMode() (string, error) {
 	// logWithReason logs the output of the has* / is* checks from the info.Interface
 	logWithReason := func(f func() (bool, string), tag string) bool {

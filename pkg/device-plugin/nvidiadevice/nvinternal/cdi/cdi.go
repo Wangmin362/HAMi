@@ -34,9 +34,10 @@ const (
 
 // cdiHandler creates CDI specs for devices assocatied with the device plugin.
 type cdiHandler struct {
-	logger           *logrus.Logger
-	nvml             nvml.Interface
-	nvdevice         nvdevice.Interface
+	logger   *logrus.Logger
+	nvml     nvml.Interface
+	nvdevice nvdevice.Interface
+	// TODO 这里应该是驱动根路径
 	driverRoot       string
 	targetDriverRoot string
 	nvidiaCTKPath    string
@@ -83,6 +84,7 @@ func newHandler(opts ...Option) (Interface, error) {
 		c.targetDriverRoot = c.driverRoot
 	}
 
+	// gpu设备命名器，如果没有设置，将会按照uuid来命名
 	deviceNamer, err := nvcdi.NewDeviceNamer(c.deviceIDStrategy)
 	if err != nil {
 		return nil, err
@@ -135,7 +137,7 @@ func (cdi *cdiHandler) CreateSpecFile() error {
 		cdi.logger.Infof("Generating CDI spec for resource: %s/%s", cdi.vendor, class)
 
 		if class == "gpu" {
-			ret := cdi.nvml.Init()
+			ret := cdi.nvml.Init() // 这里应该是在确保nvml可以正常调用
 			if ret != nvml.SUCCESS {
 				return fmt.Errorf("failed to initialize NVML: %v", ret)
 			}
@@ -161,6 +163,7 @@ func (cdi *cdiHandler) CreateSpecFile() error {
 			return fmt.Errorf("failed to generate spec name: %v", err)
 		}
 
+		// 最终生成的CDI spec被放在了/var/run/cdi目录下
 		err = spec.Save(filepath.Join(cdiRoot, specName+".json"))
 		if err != nil {
 			return fmt.Errorf("failed to save CDI spec: %v", err)

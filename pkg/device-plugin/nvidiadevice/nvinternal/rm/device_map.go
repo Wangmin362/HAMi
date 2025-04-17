@@ -95,6 +95,7 @@ func (b *deviceMapBuilder) buildDeviceMapFromConfigResources() (DeviceMap, error
 func (b *deviceMapBuilder) buildGPUDeviceMap() (DeviceMap, error) {
 	devices := make(DeviceMap)
 
+	// 遍历当前节点每一个设备
 	b.VisitDevices(func(i int, gpu device.Device) error {
 		name, ret := gpu.GetName()
 		if ret != nvml.SUCCESS {
@@ -104,6 +105,7 @@ func (b *deviceMapBuilder) buildGPUDeviceMap() (DeviceMap, error) {
 		if err != nil {
 			return fmt.Errorf("error checking if MIG is enabled on GPU: %v", err)
 		}
+		// TODO 如果开启了MIG，但是MIG策略不是None，那么就不应该将GPU设备加入到设备映射表中
 		if migEnabled && *b.config.Flags.MigStrategy != spec.MigStrategyNone {
 			return nil
 		}

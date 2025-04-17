@@ -38,31 +38,40 @@ func NewPluginManager(config *nvidia.DeviceConfig) (manager.Interface, error) {
 		return nil, fmt.Errorf("unknown strategy: %v", *config.Flags.MigStrategy)
 	}
 
+	// nvml路径一般在/usr/src/gdk/nvml/lib64/libnvml.so
 	nvmllib := nvml.New()
 
+	// TODO 这玩意干嘛的？
 	deviceListStrategies, err := spec.NewDeviceListStrategies(*config.Flags.Plugin.DeviceListStrategy)
 	if err != nil {
 		return nil, fmt.Errorf("invalid device list strategy: %v", err)
 	}
 
-	// CDI是container device interface的缩写，用于容器设备的抽象和管理。
-	// 它提供了一种统一的方式来描述和管理容器中的设备，包括GPU、FPGA和其他类型的设备。
-	// CDI的目标是简化容器设备的管理和使用，使得容器化环境中的设备管理更加高效和可靠。
-	// CDI的核心概念包括设备插件（Device Plugin）、设备资源描述符（Device Resource Descriptor）和设备资源分配器（Device Resource Allocator）。
-	// 设备插件负责发现和管理容器中的设备，设备资源描述符描述了设备的属性和功能，设备资源分配器负责将设备资源分配给容器。
-	// CDI的设计目标是提供一种灵活、可扩展的设备管理方式，使得容器环境中的设备管理更加简单和高效。
+	// 1. CDI是container device interface的缩写，用于容器设备的抽象和管理。
+	// 2. 本质上CDI规范其实主要是为了解决不同设备挂在和hook问题，一般来说我们使用一个gpu, fpga等设备，在容器中需要挂在对应设备的
+	// 驱动文件，和一些必要的命令工具，譬如nvidia-smi，nvidia-ctk, ascend-smi等。 如果没有CDI规范，每个厂商就需要自己想办法把容器
+	// 需要的文件挂载到容器里面，因为这些文件用户并不关心，用户的需求就是指定需要数量的设备即可。在这种情况下，不同的厂商基本都是需要实现自己
+	// 的docker-runtime, 本质上就是修改了OCI规范的spec文件，然后调用了runc来启动容器。
+	// 3. 但是CDI规范就解决了这个问题，它提供了一个抽象的接口，用于容器设备的抽象和管理。用户只需要指定需要的设备，CDI规范就会自动把容器需要的
+	// 文件挂载到容器里面，用户不需要关心这些文件的具体路径。
+	// 4. 具体来说，CDI规范提供了一个spec文件，用于描述容器需要的设备，譬如gpu, fpga等。然后CDI规范提供了一个runtime，用于启动容器。
+	// runtime会根据spec文件来启动容器，然后runtime会自动把容器需要的文件挂载到容器里面。
+	// TODO 如果CDI没有启用，或者用户的K8S集群版本低于1.28版本，如何解决文件的挂载问题？
 	cdiEnabled := deviceListStrategies.IsCDIEnabled()
 
+	// 1. 本质上CDIHandler的核心目标其实就是：当启动一个容器时，若想要这个容器正常使用设备，那么就必须要把设备的驱动文件挂载到容器里面，所以
+	// CDIHandler的核心目标其实就是生成对应的CDI Spec文件，然后由容器运行时来完成挂在动作。
+	// TODO 2. 若底层的容器运行时没有开启CDI功能怎么办？ device-plugin是否应该支持检查底层是否支持CDI的能力？
 	cdiHandler, err := cdi.New(
-		cdi.WithEnabled(cdiEnabled),
-		cdi.WithDriverRoot(*config.Flags.Plugin.ContainerDriverRoot),
-		cdi.WithTargetDriverRoot(*config.Flags.NvidiaDriverRoot),
-		cdi.WithNvidiaCTKPath(*config.Flags.Plugin.NvidiaCTKPath),
-		cdi.WithNvml(nvmllib),
+		cdi.WithEnabled(cdiEnabled),                                  // 是否启用CDI
+		cdi.WithDriverRoot(*config.Flags.Plugin.ContainerDriverRoot), // 启动device-plugin时必须要指定驱动的根目录
+		cdi.WithTargetDriverRoot(*config.Flags.NvidiaDriverRoot),     // TODO 和上面的有啥区别？
+		cdi.WithNvidiaCTKPath(*config.Flags.Plugin.NvidiaCTKPath),    // nvidia-ctk的路径,即container toolkit的路径
+		cdi.WithNvml(nvmllib),                                        // 调用底层设备的接口
 		cdi.WithDeviceIDStrategy(*config.Flags.Plugin.DeviceIDStrategy),
 		cdi.WithVendor("k8s.device-plugin.nvidia.com"),
-		cdi.WithGdsEnabled(*config.Flags.GDSEnabled),
-		cdi.WithMofedEnabled(*config.Flags.MOFEDEnabled),
+		cdi.WithGdsEnabled(*config.Flags.GDSEnabled),     // NVIDIA GPUDirect Storage（GDS）是一种存储加速技术
+		cdi.WithMofedEnabled(*config.Flags.MOFEDEnabled), // NVIDIA MOFED（Mellanox OFED，OpenFabrics Enterprise Distribution for Mellanox）是针对 Mellanox 网络适配器的驱动和软件集合
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create cdi handler: %v", err)
@@ -72,14 +81,15 @@ func NewPluginManager(config *nvidia.DeviceConfig) (manager.Interface, error) {
 		manager.WithNVML(nvmllib),
 		manager.WithCDIEnabled(cdiEnabled),
 		manager.WithCDIHandler(cdiHandler),
-		manager.WithConfig(config),
-		manager.WithFailOnInitError(*config.Flags.FailOnInitError),
-		manager.WithMigStrategy(*config.Flags.MigStrategy),
+		manager.WithConfig(config),                                 // 设备配置
+		manager.WithFailOnInitError(*config.Flags.FailOnInitError), // 初始化失败是否退出
+		manager.WithMigStrategy(*config.Flags.MigStrategy),         // MIG策略，目前支持none, single, mixed
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create plugin manager: %v", err)
 	}
 
+	// 生成CDI Spec文件放在/var/run/cdi目录下
 	if err := m.CreateCDISpecFile(); err != nil {
 		return nil, fmt.Errorf("unable to create cdi spec file: %v", err)
 	}

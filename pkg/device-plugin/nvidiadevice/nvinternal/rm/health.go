@@ -79,6 +79,7 @@ func (r *nvmlResourceManager) checkHealth(stop <-chan interface{}, devices Devic
 	}
 
 	for _, additionalXid := range getAdditionalXids(disableHealthChecks) {
+		// 这些异常将会被忽略
 		skippedXids[additionalXid] = true
 	}
 
@@ -217,6 +218,7 @@ func getAdditionalXids(input string) []uint64 {
 // For a MIG device the placement is defined by the 3-tuple <parent UUID, GI, CI>
 // For a full device the returned 3-tuple is the device's uuid and 0xFFFFFFFF for the other two elements.
 func (r *nvmlResourceManager) getDevicePlacement(d *Device) (string, int, int, error) {
+	// 说明当前设备没有启用MIG功能，直接返回设备的UUID和0xFFFFFFFF
 	if !d.IsMigDevice() {
 		return d.GetUUID(), 0xFFFFFFFF, 0xFFFFFFFF, nil
 	}

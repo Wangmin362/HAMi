@@ -18,6 +18,8 @@ package cdi
 
 // Interface provides the API to the 'cdi' package
 //
+// 这个接口的目标就是为了调用底层的CDI接口，生成一个CDI spec文件，然后将这个spec文件写入到CDI根目录下
+//
 //go:generate moq -stub -out api_mock.go . Interface
 type Interface interface {
 	CreateSpecFile() error

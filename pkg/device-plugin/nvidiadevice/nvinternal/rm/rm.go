@@ -30,21 +30,26 @@ import (
 
 // resourceManager forms the base type for specific resource manager implementations
 type resourceManager struct {
+	// TODO 如何理解这里的设备配置
 	config   *nvidia.DeviceConfig
 	resource spec.ResourceName
 	devices  Devices
 }
 
 // ResourceManager provides an interface for listing a set of Devices and checking health on them
+// TODO 资源管理器主要是用于管理当前节点上的计算资源。资源和设备应该是有区别的。因为可以在一个设备上通过gpu single和gpu mixed来划分资源。
+// 这样一个设备就可以被划分为多个资源。此时即使你只有一个节点，随之每张gpu卡都是一样的，但是可能由于划分策略的不同，造成一个节点会有多个资源。
 type ResourceManager interface {
-	Resource() spec.ResourceName
-	Devices() Devices
-	GetDevicePaths([]string) []string
+	Resource() spec.ResourceName      // 当前管理的资源名
+	Devices() Devices                 // 当前资源的设备数量
+	GetDevicePaths([]string) []string // 这里因该是/dev目录下每个设备的名字，譬如：/dev/nvidia0，容器在使用的时候需要把这些设备挂在进去
 	GetPreferredAllocation(available, required []string, size int) ([]string, error)
+	// CheckHealth 用于检查当前设备的健康状态，如果检查到设备不健康了，此时通过unhealthy channel将设备信息发送出去。
 	CheckHealth(stop <-chan interface{}, unhealthy chan<- *Device) error
 }
 
 // NewResourceManagers returns a []ResourceManager, one for each resource in 'config'.
+// 1. 一个节点上极有可能有多种不同类型的资源，因此这里返回值是一个数组
 func NewResourceManagers(nvmllib nvml.Interface, config *nvidia.DeviceConfig) ([]ResourceManager, error) {
 	// logWithReason logs the output of the has* / is* checks from the info.Interface
 	logWithReason := func(f func() (bool, string), tag string) bool {
@@ -74,6 +79,7 @@ func NewResourceManagers(nvmllib nvml.Interface, config *nvidia.DeviceConfig) ([
 	}
 
 	// The NVIDIA container stack does not yet support the use of integrated AND discrete GPUs on the same node.
+	// 如果当前节点既支持NVML有是Tegra频台，那么默认使用Tegra
 	if hasNVML && isTegra {
 		klog.Warning("Disabling Tegra-based resources on NVML system")
 		isTegra = false

@@ -285,6 +285,7 @@ func startPlugins(c *cli.Context, flags []cli.Flag, restarting bool) ([]plugin.I
 	if err != nil {
 		return nil, false, fmt.Errorf("error creating plugin manager: %v", err)
 	}
+	// 每一种资源都会有一个device-plugin服务，以便注册到kubelet device plugin manager当中
 	plugins, err := pluginManager.GetPlugins()
 	if err != nil {
 		return nil, false, fmt.Errorf("error getting plugins: %v", err)
@@ -301,6 +302,7 @@ func startPlugins(c *cli.Context, flags []cli.Flag, restarting bool) ([]plugin.I
 		}
 
 		// Start the gRPC server for plugin p and connect it with the kubelet.
+		// 启动device-plugin GRPC服务，kubelet会自动调用插件的ListAndWatch方法获取当前节点的设备
 		if err := p.Start(); err != nil {
 			klog.Error("Could not contact Kubelet. Did you enable the device plugin feature gate?")
 			klog.Error("You can check the prerequisites at: https://github.com/NVIDIA/k8s-device-plugin#prerequisites")
