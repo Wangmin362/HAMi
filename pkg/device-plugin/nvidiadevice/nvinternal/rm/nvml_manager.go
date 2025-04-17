@@ -55,7 +55,9 @@ func NewNVMLResourceManagers(nvmllib nvml.Interface, config *nvidia.DeviceConfig
 		if len(devices) == 0 {
 			continue
 		}
+		// 每一种资源，可能不止一个设备，很有可能存在多个设备
 		for key, value := range devices {
+			// 可能配置了部分设备不需要注册，此时直接忽略这个设备
 			if nvidia.FilterDeviceToRegister(value.ID, value.Index) {
 				klog.V(5).InfoS("Filtering device", "device", value.ID)
 				delete(devices, key)
@@ -64,9 +66,9 @@ func NewNVMLResourceManagers(nvmllib nvml.Interface, config *nvidia.DeviceConfig
 		}
 		r := &nvmlResourceManager{
 			resourceManager: resourceManager{
-				config:   config,
-				resource: resourceName,
-				devices:  devices,
+				config:   config,       // 设备配置
+				resource: resourceName, // 资源名， 譬如nvidia.com/3g-32g等等
+				devices:  devices,      // 当前资源所有的设备
 			},
 			nvml: nvmllib,
 		}

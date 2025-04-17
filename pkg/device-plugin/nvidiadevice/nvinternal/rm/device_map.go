@@ -27,8 +27,8 @@ import (
 )
 
 type deviceMapBuilder struct {
-	device.Interface
-	config *nvidia.DeviceConfig
+	device.Interface                      // 通过nvml驱动接口获取gpu设备的各种信息
+	config           *nvidia.DeviceConfig // TODO 这个配置是怎么拿到的？ 用户配置的么？
 }
 
 // DeviceMap stores a set of devices per resource name.
@@ -58,6 +58,7 @@ func (b *deviceMapBuilder) build() (DeviceMap, error) {
 
 // buildDeviceMapFromConfigResources builds a map of resource names to devices from spec.Config.Resources
 func (b *deviceMapBuilder) buildDeviceMapFromConfigResources() (DeviceMap, error) {
+	// 本质上还是通过调用底层的nvml函数库获取设备信息以及gpu设备的numa节点信息，并保存起来
 	deviceMap, err := b.buildGPUDeviceMap()
 	if err != nil {
 		return nil, fmt.Errorf("error building GPU device map: %v", err)
@@ -67,6 +68,9 @@ func (b *deviceMapBuilder) buildDeviceMapFromConfigResources() (DeviceMap, error
 		return deviceMap, nil
 	}
 
+	// 说明需要对gpu进行算力切分
+
+	// 本质上就是通过调用nvml驱动接口获取每个设备的vgpu划分情况，同样也需要获取每个vgpu的numa节点信息，然后保存各个vgpu设备
 	migDeviceMap, err := b.buildMigDeviceMap()
 	if err != nil {
 		return nil, fmt.Errorf("error building MIG device map: %v", err)
@@ -74,14 +78,17 @@ func (b *deviceMapBuilder) buildDeviceMapFromConfigResources() (DeviceMap, error
 
 	var requireUniformMIGDevices bool
 	if *b.config.Flags.MigStrategy == spec.MigStrategySingle {
+		// 由于开启的是mig single模式，因此一张卡只能被划分为相同规格的gpu
 		requireUniformMIGDevices = true
 	}
 
+	// 检查vgpu划分是否有效，特别的。若gpu模式为mig single，需要检查当前gpu所有的vgpu是否是相同的规格
 	err = b.assertAllMigDevicesAreValid(requireUniformMIGDevices)
 	if err != nil {
 		return nil, fmt.Errorf("invalid MIG configuration: %v", err)
 	}
 
+	// 说明一个节点上的卡要么配置算力切分，要么都是整卡调度
 	if requireUniformMIGDevices && !deviceMap.isEmpty() && !migDeviceMap.isEmpty() {
 		return nil, fmt.Errorf("all devices on the node must be configured with the same migEnabled value")
 	}
@@ -92,10 +99,11 @@ func (b *deviceMapBuilder) buildDeviceMapFromConfigResources() (DeviceMap, error
 }
 
 // buildGPUDeviceMap builds a map of resource names to GPU devices
+// 本质上还是通过调用底层的nvml函数库获取设备信息以及gpu设备的numa节点信息，并保存起来
 func (b *deviceMapBuilder) buildGPUDeviceMap() (DeviceMap, error) {
 	devices := make(DeviceMap)
 
-	// 遍历当前节点每一个设备
+	// 遍历当前节点每一个设备，通过nvml设备可以知道当前节点gpu的数量，然后遍历每一个设备进行处理
 	b.VisitDevices(func(i int, gpu device.Device) error {
 		name, ret := gpu.GetName()
 		if ret != nvml.SUCCESS {
@@ -112,6 +120,7 @@ func (b *deviceMapBuilder) buildGPUDeviceMap() (DeviceMap, error) {
 		for _, resource := range b.config.Resources.GPUs {
 			if resource.Pattern.Matches(name) {
 				index, info := newGPUDevice(i, gpu)
+				// 获取当前gpu设备的numa节点信息，然后保存在map中
 				return devices.setEntry(resource.Name, index, info)
 			}
 		}
@@ -121,8 +130,10 @@ func (b *deviceMapBuilder) buildGPUDeviceMap() (DeviceMap, error) {
 }
 
 // buildMigDeviceMap builds a map of resource names to MIG devices
+// 本质上就是通过调用nvml驱动接口获取每个设备的vgpu划分情况，同样也需要获取每个vgpu的numa节点信息，然后保存各个vgpu设备
 func (b *deviceMapBuilder) buildMigDeviceMap() (DeviceMap, error) {
 	devices := make(DeviceMap)
+	// 遍历mig设备，i应该表示的是第几个gpu设备，j表示当前gpu设备的第几个vgpu设备
 	err := b.VisitMigDevices(func(i int, d device.Device, j int, mig device.MigDevice) error {
 		migProfile, err := mig.GetProfile()
 		if err != nil {
@@ -141,6 +152,7 @@ func (b *deviceMapBuilder) buildMigDeviceMap() (DeviceMap, error) {
 
 // assertAllMigDevicesAreValid ensures that each MIG-enabled device has at least one MIG device
 // associated with it.
+// 检查vgpu划分是否有效，特别的。若gpu模式为mig single，需要检查当前gpu所有的vgpu是否是相同的规格
 func (b *deviceMapBuilder) assertAllMigDevicesAreValid(uniform bool) error {
 	err := b.VisitDevices(func(i int, d device.Device) error {
 		isMigEnabled, err := d.IsMigEnabled()
@@ -164,10 +176,11 @@ func (b *deviceMapBuilder) assertAllMigDevicesAreValid(uniform bool) error {
 		return fmt.Errorf("at least one device with migEnabled=true was not configured correctly: %v", err)
 	}
 
-	if !uniform {
+	if !uniform { // 说明当前gpu模式为mig mixed模式，所以不需要检查
 		return nil
 	}
 
+	// 检查当前gpu划分出来的vgpu是否是相同的规格，如果不是需要报错
 	var previousAttributes *nvml.DeviceAttributes
 	return b.VisitMigDevices(func(i int, d device.Device, j int, m device.MigDevice) error {
 		attrs, ret := m.GetAttributes()
@@ -185,11 +198,14 @@ func (b *deviceMapBuilder) assertAllMigDevicesAreValid(uniform bool) error {
 }
 
 // setEntry sets the DeviceMap entry for the specified resource.
+// 获取当前gpu设备的numa节点信息，然后保存在map中
 func (d DeviceMap) setEntry(name spec.ResourceName, index string, info deviceInfo) error {
+	// 这里主要是获取numa信息
 	dev, err := BuildDevice(index, info)
 	if err != nil {
 		return fmt.Errorf("error building Device: %v", err)
 	}
+	// 保存在map当中
 	d.insert(name, dev)
 	return nil
 }

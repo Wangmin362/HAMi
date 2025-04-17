@@ -48,7 +48,7 @@ var _ deviceInfo = (*nvmlMigDevice)(nil)
 func newGPUDevice(i int, gpu nvml.Device) (string, deviceInfo) {
 	index := fmt.Sprintf("%v", i)
 	isWsl, _ := info.New().HasDXCore()
-	if isWsl {
+	if isWsl { // 这种设备应该是在windows上吧
 		return index, wslDevice{gpu}
 	}
 

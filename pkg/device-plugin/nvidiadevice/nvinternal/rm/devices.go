@@ -73,7 +73,7 @@ func BuildDevice(index string, d deviceInfo) (*Device, error) {
 		dev.Topology = &kubeletdevicepluginv1beta1.TopologyInfo{
 			Nodes: []*kubeletdevicepluginv1beta1.NUMANode{
 				{
-					ID: int64(numa),
+					ID: int64(numa), // 如果多个gpu的numa数字相同，说明这些gpu在同一个numa节点上
 				},
 			},
 		}

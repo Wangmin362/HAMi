@@ -16,6 +16,7 @@
 
 package rm
 
+// TODO windows for linux?
 type wslDevice nvmlDevice
 
 var _ deviceInfo = (*wslDevice)(nil)
