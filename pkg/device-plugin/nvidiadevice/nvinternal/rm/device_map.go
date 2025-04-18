@@ -35,6 +35,7 @@ type deviceMapBuilder struct {
 type DeviceMap map[spec.ResourceName]Devices
 
 // NewDeviceMap creates a device map for the specified NVML library and config.
+// 本质上还是通过调用底层的nvml函数库获取设备信息以及gpu设备的numa节点信息，并保存起来
 func NewDeviceMap(nvmllib nvml.Interface, config *nvidia.DeviceConfig) (DeviceMap, error) {
 	b := deviceMapBuilder{
 		Interface: device.New(device.WithNvml(nvmllib)),
@@ -45,6 +46,7 @@ func NewDeviceMap(nvmllib nvml.Interface, config *nvidia.DeviceConfig) (DeviceMa
 
 // build builds a map of resource names to devices.
 func (b *deviceMapBuilder) build() (DeviceMap, error) {
+	// 本质上还是通过调用底层的nvml函数库获取设备信息以及gpu设备的numa节点信息，并保存起来
 	devices, err := b.buildDeviceMapFromConfigResources()
 	if err != nil {
 		return nil, fmt.Errorf("error building device map from config.resources: %v", err)
@@ -88,11 +90,16 @@ func (b *deviceMapBuilder) buildDeviceMapFromConfigResources() (DeviceMap, error
 		return nil, fmt.Errorf("invalid MIG configuration: %v", err)
 	}
 
-	// 说明一个节点上的卡要么配置算力切分，要么都是整卡调度
+	// 1. 英伟达的gpu卡如果其中一张卡配置了mig single模式，那么当前节点所有的卡都必须配置为mig single模式
+	// 2. 这是因为 MIG single 模式要求节点上的所有 GPU 以相同的方式进行配置，以提供一致的 MIG 设备类型，便于资源管理和调度，
+	// 确保整个系统的稳定性和兼容性。如果将不同配置的 GPU 混合使用，可能会导致系统无法正常识别或分配资源，影响应用程序的运行。
+	// 3. 也就是说mig single模式下，每张gpu卡都必须是相同的规格，不支持整卡调度 + mig single模式vgpu混合使用
 	if requireUniformMIGDevices && !deviceMap.isEmpty() && !migDeviceMap.isEmpty() {
 		return nil, fmt.Errorf("all devices on the node must be configured with the same migEnabled value")
 	}
 
+	// 1. 如果当前节点上的gpu部分配置了mig mixed模式，那么支持部分的卡不配置，也就是整卡调度。
+	// 2. 也就是说mig mixed模式vgpu + 整卡调度是支持的
 	deviceMap.merge(migDeviceMap)
 
 	return deviceMap, nil
@@ -283,18 +290,20 @@ func (d DeviceMap) getIDsOfDevicesToReplicate(r *spec.ReplicatedResource) ([]str
 }
 
 // updateDeviceMapWithReplicas returns an updated map of resource names to devices with replica information from spec.Config.Sharing.TimeSlicing.Resources
+// TODO 暂时不太懂这里的逻辑
 func updateDeviceMapWithReplicas(config *nvidia.DeviceConfig, oDevices DeviceMap) (DeviceMap, error) {
 	devices := make(DeviceMap)
 
 	// Begin by walking config.Sharing.TimeSlicing.Resources and building a map of just the resource names.
 	names := make(map[spec.ResourceName]bool)
+	// gpu时间片共享模式，即同一个gpu卡可以同时被多个进程使用，每个进程使用一段时间后释放，调度下一个进程继续使用gpu, 类似cpu的调度。
 	for _, r := range config.Sharing.TimeSlicing.Resources {
 		names[r.Name] = true
 	}
 
 	// Copy over all devices from oDevices without a resource reference in TimeSlicing.Resources.
 	for r, ds := range oDevices {
-		if !names[r] {
+		if !names[r] { // 说明这种资源并没有配置时间片共享模式
 			devices[r] = ds
 		}
 	}

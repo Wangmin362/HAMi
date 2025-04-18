@@ -27,8 +27,8 @@ import (
 // Device wraps kubeletdevicepluginv1beta1.Device with extra metadata and functions.
 type Device struct {
 	kubeletdevicepluginv1beta1.Device
-	Paths []string
-	Index string
+	Paths []string // 设备的路径，譬如：/dev/nvidia0，/dev/nvidia1等等
+	Index string   // 设备的索引，譬如：0,1,2等等，通过查询nvml库来获取的。
 }
 
 // deviceInfo defines the information the required to construct a Device

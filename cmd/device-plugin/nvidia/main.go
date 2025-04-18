@@ -247,7 +247,7 @@ exit:
 func startPlugins(c *cli.Context, flags []cli.Flag, restarting bool) ([]plugin.Interface, bool, error) {
 	// Load the configuration file
 	klog.Info("Loading configuration.")
-	// 加载nvidia gpu配置文件
+	// 加载nvidia gpu配置文件  TODO 这个配置文件一般在哪里？ 内容大概长什么样？
 	config, err := loadConfig(c, flags)
 	if err != nil {
 		return nil, false, fmt.Errorf("unable to load config: %v", err)
@@ -266,7 +266,7 @@ func startPlugins(c *cli.Context, flags []cli.Flag, restarting bool) ([]plugin.I
 
 	// Update the configuration file with default resources.
 	klog.Info("Updating config with default resource matching patterns.")
-	// 根据MIG的single, mixed不同的策略，设置不同的资源匹配规则
+	// 根据MIG的single, mixed不同的策略，设置不同的资源匹配规则，后续通过nvml库获取到的资源信息，就可以根据这些规则来匹配资源了。
 	err = rm.AddDefaultResourcesToConfig(&devConfig)
 	if err != nil {
 		return nil, false, fmt.Errorf("unable to add default resources to config: %v", err)
