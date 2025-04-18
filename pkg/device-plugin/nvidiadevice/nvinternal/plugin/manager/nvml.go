@@ -27,7 +27,7 @@ type nvmlmanager manager
 
 // GetPlugins returns the plugins associated with the NVML resources available on the node
 func (m *nvmlmanager) GetPlugins() ([]plugin.Interface, error) {
-	// 实例化nvml资源管理器，实际上就是管理当前节点的设备，肯能是切分之后的设备
+	// 实例化nvml资源管理器，实际上就是管理当前节点的设备，可能是切分之后的设备
 	rms, err := rm.NewNVMLResourceManagers(m.nvmllib, m.config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to construct NVML resource managers: %v", err)

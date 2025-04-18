@@ -55,7 +55,8 @@ const (
 
 var (
 	hostHookPath string
-	ConfigFile   *string
+	// TODO 这个配置是什么时候赋值的？ 有啥作用？
+	ConfigFile *string
 )
 
 func init() {
@@ -67,7 +68,7 @@ type NvidiaDevicePlugin struct {
 	// TODO 这里的资源管理器我猜测是管理不同的vGPU,如果是nvidia gpu mixed模式，在一个节点上就会出现不同的gpu规格，每一种规格可以看成是一种计算资源
 	rm                   rm.ResourceManager
 	config               *nvidia.DeviceConfig
-	deviceListEnvvar     string
+	deviceListEnvvar     string // 分配设备时需要给这个设备添加的环境变量
 	deviceListStrategies spec.DeviceListStrategies
 	// 当前device-plugin插件的socket地址, 用于k8s和device-plugin插件之间的通信
 	socket          string
@@ -357,19 +358,20 @@ func (plugin *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *kubeletdev
 	}
 	klog.V(5).Infof("allocate pod name is %s/%s, annotation is %+v", current.Namespace, current.Name, current.Annotations)
 
+	// 一个Pod通常有多个容器，每个容器可能申请的设备是不相同的，因此这里需要针对每个容器单独进行分配
 	for idx, req := range reqs.ContainerRequests {
 		// If the devices being allocated are replicas, then (conditionally)
 		// error out if more than one resource is being allocated.
 
 		if strings.Contains(req.DevicesIDs[0], "MIG") {
-
+			// TODO 这里在判断什么？
 			if plugin.config.Sharing.TimeSlicing.FailRequestsGreaterThanOne && rm.AnnotatedIDs(req.DevicesIDs).AnyHasAnnotations() {
 				if len(req.DevicesIDs) > 1 {
 					return nil, fmt.Errorf("request for '%v: %v' too large: maximum request size for shared resources is 1", plugin.rm.Resource(), len(req.DevicesIDs))
 				}
 			}
 
-			for _, id := range req.DevicesIDs {
+			for _, id := range req.DevicesIDs { // 设备ID无效
 				if !plugin.rm.Devices().Contains(id) {
 					return nil, fmt.Errorf("invalid allocation request for '%s': unknown device: %s", plugin.rm.Resource(), id)
 				}
