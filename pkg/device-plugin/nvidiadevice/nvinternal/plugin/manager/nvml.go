@@ -35,6 +35,7 @@ func (m *nvmlmanager) GetPlugins() ([]plugin.Interface, error) {
 
 	var plugins []plugin.Interface
 	for _, r := range rms {
+		// 每一种资源都需要起一个device-plugin
 		plugins = append(plugins, plugin.NewNvidiaDevicePlugin(m.config, r, m.cdiHandler, m.cdiEnabled))
 	}
 	return plugins, nil

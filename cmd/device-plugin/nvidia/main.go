@@ -45,7 +45,6 @@ func main() {
 	c.Usage = "NVIDIA device plugin for Kubernetes"
 	c.Version = info.GetVersionString()
 	c.Action = func(ctx *cli.Context) error {
-		// 核心逻辑
 		return start(ctx, c.Flags)
 	}
 

@@ -120,6 +120,7 @@ func readFromConfigFile(sConfig *nvidia.NvidiaConfig) error {
 
 // NewNvidiaDevicePlugin returns an initialized NvidiaDevicePlugin
 func NewNvidiaDevicePlugin(config *nvidia.DeviceConfig, resourceManager rm.ResourceManager, cdiHandler cdi.Interface, cdiEnabled bool) *NvidiaDevicePlugin {
+	// 一般来说，格式为：nvidia.com/gpu-3g-32G 类似的字符串
 	_, name := resourceManager.Resource().Split()
 
 	deviceListStrategies, _ := spec.NewDeviceListStrategies(*config.Flags.Plugin.DeviceListStrategy)
@@ -133,8 +134,9 @@ func NewNvidiaDevicePlugin(config *nvidia.DeviceConfig, resourceManager rm.Resou
 	device.InitDevicesWithConfig(sConfig)
 
 	return &NvidiaDevicePlugin{
-		rm:                   resourceManager,
-		config:               config,
+		rm:     resourceManager,
+		config: config,
+		// 在容器环境中，NVIDIA_VISIBLE_DEVICES 环境变量扮演着至关重要的角色，主要用于控制容器对 NVIDIA GPU 设备的可见性和使用权限
 		deviceListEnvvar:     "NVIDIA_VISIBLE_DEVICES",
 		deviceListStrategies: deviceListStrategies,
 		socket:               kubeletdevicepluginv1beta1.DevicePluginPath + "nvidia-" + name + ".sock",

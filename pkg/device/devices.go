@@ -82,6 +82,7 @@ func GetDevices() map[string]Devices {
 	return devices
 }
 
+// TODO 这里实例化设备的时候，为什么会有处理英伟达之外的其它厂商的gpu?
 func InitDevicesWithConfig(config *Config) {
 	devices = make(map[string]Devices)
 	DevicesToHandle = []string{}

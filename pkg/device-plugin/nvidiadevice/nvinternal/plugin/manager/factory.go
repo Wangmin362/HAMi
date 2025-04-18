@@ -63,7 +63,7 @@ func New(opts ...Option) (Interface, error) {
 		return nil, err
 	}
 
-	// 如果只有nvml支持CDI功能，或者说CDI功能的开启需要调用nvml函数库去获取某些信息
+	// 只有nvml支持CDI功能，或者说CDI功能的开启需要调用nvml函数库去获取某些信息
 	if mode != "nvml" && m.cdiEnabled {
 		klog.Warning("CDI is not supported; disabling CDI.")
 		m.cdiEnabled = false

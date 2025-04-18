@@ -28,6 +28,8 @@ const (
 
 // buildTegraDeviceMap creates a DeviceMap for the tegra devices in the sytesm.
 // NOTE: At present only a single tegra device is expected.
+// 1. 看注释的意思，目前仅仅支持一个tegra设备
+// 2. 从代码层面来看，tegra设备似乎并不支持设备发现，而是在启动的时候通过读取某些配置文件来获取设备信息
 func buildTegraDeviceMap(config *nvidia.DeviceConfig) (DeviceMap, error) {
 	devices := make(DeviceMap)
 
