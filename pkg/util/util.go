@@ -61,7 +61,12 @@ func GetNode(nodename string) (*corev1.Node, error) {
 	return n, err
 }
 
+// GetPendingPod
+// 1. 获取当前需要分配设备的Pod
+// 2. 有两种情况可以获取到这个Pod: 一种是通过查询节点锁，获取当前该节点正在申请分配设备的Pod; 若当前节点锁不存在，那么通过Pod的
+// hami.io/vgpu-time, hami.io/vgpu-node, hami.io/bind-time, hami.io/bind-phase注解，判断当前Pod是否是分配设备的Pod;
 func GetPendingPod(ctx context.Context, node string) (*corev1.Pod, error) {
+	// 通过查询节点锁，获取当前该节点正在申请分配设备的Pod; 如果不存在节点锁，说明当前节点上没有参与分配设备的Pod，返回nil
 	pod, err := GetAllocatePodByNode(ctx, node)
 	if err != nil {
 		return nil, err
@@ -69,11 +74,15 @@ func GetPendingPod(ctx context.Context, node string) (*corev1.Pod, error) {
 	if pod != nil {
 		return pod, nil
 	}
+
+	// 若pod = nil,说明当前节点上没有参与分配设备的Pod，此时需要遍历当前Node节点上需要分配gpu的Pod，然后返回
+
 	// filter pods for this node.
 	selector := fmt.Sprintf("spec.nodeName=%s", node)
 	podListOptions := metav1.ListOptions{
 		FieldSelector: selector,
 	}
+	// 找出当前节点上所有的Pod资源
 	podlist, err := client.GetClient().CoreV1().Pods("").List(ctx, podListOptions)
 	if err != nil {
 		return nil, err
@@ -82,19 +91,24 @@ func GetPendingPod(ctx context.Context, node string) (*corev1.Pod, error) {
 		if p.Status.Phase != corev1.PodPending {
 			continue
 		}
+		// 若Pod没有打上hami.io/bind-time，直接跳过
 		if _, ok := p.Annotations[BindTimeAnnotations]; !ok {
 			continue
 		}
+		// 若Pod没有打上hami.io/bind-phase，直接跳过
 		if phase, ok := p.Annotations[DeviceBindPhase]; !ok {
 			continue
 		} else {
+			// 说明当前Pod处于分配设备的节点，但是并不是allocating阶段
 			if strings.Compare(phase, DeviceBindAllocating) != 0 {
 				continue
 			}
 		}
+		// 若Pod没有打上hami.io/vgpu-node，直接跳过
 		if n, ok := p.Annotations[AssignedNodeAnnotations]; !ok {
 			continue
 		} else {
+			// 若Pod打上的hami.io/vgpu-node和当前节点一致，直接返回
 			if strings.Compare(n, node) == 0 {
 				return &p, nil
 			}
@@ -103,13 +117,18 @@ func GetPendingPod(ctx context.Context, node string) (*corev1.Pod, error) {
 	return nil, fmt.Errorf("no binding pod found on node %s", node)
 }
 
+// GetAllocatePodByNode
+// 通过查询节点锁，获取当前该节点正在申请分配设备的Pod; 如果不存在节点锁，说明当前节点上没有参与分配设备的Pod，返回nil
 func GetAllocatePodByNode(ctx context.Context, nodeName string) (*corev1.Pod, error) {
+	// 获取当前device-plugin所在节点的Node资源
 	node, err := client.GetClient().CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}
+	// 获取节点锁
 	if value, ok := node.Annotations[nodelock.NodeLockKey]; ok {
 		klog.V(2).Infof("node annotation key is %s, value is %s ", nodelock.NodeLockKey, value)
+		// 获取当前需要在该节点分配设备的pod，即获取当前在节点上正在申请分配设备的Pod，通过锁，我可以知道是那个名称空间的哪个Pod在申请分配设备
 		_, ns, name, err := nodelock.ParseNodeLock(value)
 		if err != nil {
 			return nil, err

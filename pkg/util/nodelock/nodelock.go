@@ -35,6 +35,7 @@ const (
 	NodeLockSep  = ","
 )
 
+// SetNodeLock 本质上就是给Node资源添加一个hami.io/mutex.lock注解，注解的值类似：2025-04-19T10:30:00Z,my-namespace,my-pod
 func SetNodeLock(nodeName string, lockname string, pods *corev1.Pod) error {
 	ctx := context.Background()
 	node, err := client.GetClient().CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
@@ -45,6 +46,7 @@ func SetNodeLock(nodeName string, lockname string, pods *corev1.Pod) error {
 		return fmt.Errorf("node %s is locked", nodeName)
 	}
 	newNode := node.DeepCopy()
+	// 返回值格式为：2025-04-19T10:30:00Z,my-namespace,my-pod
 	newNode.ObjectMeta.Annotations[NodeLockKey] = GenerateNodeLockKeyByPod(pods)
 	_, err = client.GetClient().CoreV1().Nodes().Update(ctx, newNode, metav1.UpdateOptions{})
 	for i := 0; i < MaxLockRetry && err != nil; i++ {
@@ -66,16 +68,19 @@ func SetNodeLock(nodeName string, lockname string, pods *corev1.Pod) error {
 	return nil
 }
 
+// ReleaseNodeLock 释放锁本质上就是删除node节点的hami.io/mutex.lock注解
 func ReleaseNodeLock(nodeName string, lockname string) error {
 	ctx := context.Background()
 	node, err := client.GetClient().CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
 	if err != nil {
 		return err
 	}
+	// 查询node节点的hami.io/mutex.lock注解
 	if _, ok := node.ObjectMeta.Annotations[NodeLockKey]; !ok {
 		klog.InfoS("Node lock not set", "node", nodeName)
 		return nil
 	}
+	// 这里进行深拷贝是在K8S中修改资源对象的最佳实践，获取->深拷贝->修改->更新，这是K8S官方推荐的操作方式
 	newNode := node.DeepCopy()
 	delete(newNode.ObjectMeta.Annotations, NodeLockKey)
 	_, err = client.GetClient().CoreV1().Nodes().Update(ctx, newNode, metav1.UpdateOptions{})
@@ -137,10 +142,12 @@ func ParseNodeLock(value string) (lockTime time.Time, ns, name string, err error
 	return lockTime, s[1], s[2], err
 }
 
+// GenerateNodeLockKeyByPod 返回值格式为：2025-04-19T10:30:00Z,my-namespace,my-pod
 func GenerateNodeLockKeyByPod(pods *corev1.Pod) string {
 	if pods == nil {
 		return time.Now().Format(time.RFC3339)
 	}
 	ns, name := pods.Namespace, pods.Name
+	// 2025-04-19T10:30:00Z,my-namespace,my-pod
 	return fmt.Sprintf("%s%s%s%s%s", time.Now().Format(time.RFC3339), NodeLockSep, ns, NodeLockSep, name)
 }

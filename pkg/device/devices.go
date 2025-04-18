@@ -131,9 +131,11 @@ func PodAllocationTrySuccess(nodeName string, devName string, lockName string, p
 		}
 	}
 	klog.Infoln("AllDevicesAllocateSuccess releasing lock")
+	// 当前Pod成功分配设备后，需要更新Pod的注解，打上hami.io/bind-phase=success的标签，同时释放节点的锁
 	PodAllocationSuccess(nodeName, pod, lockName)
 }
 
+// PodAllocationSuccess 当前Pod成功分配设备后，需要更新Pod的注解，打上hami.io/bind-phase=success的标签，同时释放节点的锁
 func PodAllocationSuccess(nodeName string, pod *corev1.Pod, lockname string) {
 	newannos := make(map[string]string)
 	newannos[util.DeviceBindPhase] = util.DeviceBindSuccess

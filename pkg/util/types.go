@@ -68,10 +68,12 @@ type ContainerDeviceRequest struct {
 	Coresreq         int32
 }
 
+// 一个容器可能申请多个gpu设备
 type ContainerDevices []ContainerDevice
 type ContainerDeviceRequests map[string]ContainerDeviceRequest
 
 // type ContainerAllDevices map[string]ContainerDevices.
+// 一个pod可能有多个容器
 type PodSingleDevice []ContainerDevices
 
 type PodDeviceRequests []ContainerDeviceRequests

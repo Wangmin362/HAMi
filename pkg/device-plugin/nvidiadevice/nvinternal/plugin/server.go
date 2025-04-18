@@ -351,8 +351,12 @@ func (plugin *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *kubeletdev
 	klog.InfoS("Allocate", "request", reqs)
 	responses := kubeletdevicepluginv1beta1.AllocateResponse{}
 	nodename := os.Getenv(util.NodeNameEnvName)
+	// 1. 获取当前需要分配设备的Pod
+	// 2. 有两种情况可以获取到这个Pod: 一种是通过查询节点锁，获取当前该节点正在申请分配设备的Pod; 若当前节点锁不存在，那么通过Pod的
+	// hami.io/vgpu-time, hami.io/vgpu-node, hami.io/bind-time, hami.io/bind-phase注解，判断当前Pod是否是分配设备的Pod;
 	current, err := util.GetPendingPod(ctx, nodename)
 	if err != nil {
+		// TODO 什么时候锁上的？
 		nodelock.ReleaseNodeLock(nodename, NodeLockNvidia)
 		return &kubeletdevicepluginv1beta1.AllocateResponse{}, err
 	}
@@ -386,6 +390,7 @@ func (plugin *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *kubeletdev
 			currentCtr, devreq, err := util.GetNextDeviceRequest(nvidia.NvidiaGPUDevice, *current)
 			klog.Infoln("deviceAllocateFromAnnotation=", devreq)
 			if err != nil {
+				// 分配失败，释放节点锁
 				device.PodAllocationFailed(nodename, current, NodeLockNvidia)
 				return &kubeletdevicepluginv1beta1.AllocateResponse{}, err
 			}
@@ -428,10 +433,12 @@ func (plugin *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *kubeletdev
 
 			os.MkdirAll(cacheFileHostDirectory, 0777)
 			os.Chmod(cacheFileHostDirectory, 0777)
+			// TODO 这里在干嘛？ 为什么要这么做？ 为了解决什么问题？
 			os.MkdirAll("/tmp/vgpulock", 0777)
 			os.Chmod("/tmp/vgpulock", 0777)
 			response.Mounts = append(response.Mounts,
 				&kubeletdevicepluginv1beta1.Mount{ContainerPath: fmt.Sprintf("%s/vgpu/libvgpu.so", hostHookPath),
+					// TODO libvgpu.so是干啥的？
 					HostPath: hostHookPath + "/vgpu/libvgpu.so",
 					ReadOnly: true},
 				&kubeletdevicepluginv1beta1.Mount{ContainerPath: fmt.Sprintf("%s/vgpu", hostHookPath),
@@ -455,9 +462,11 @@ func (plugin *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *kubeletdev
 				}
 			}
 			if !found {
-				response.Mounts = append(response.Mounts, &kubeletdevicepluginv1beta1.Mount{ContainerPath: "/etc/ld.so.preload",
-					HostPath: hostHookPath + "/vgpu/ld.so.preload",
-					ReadOnly: true},
+				response.Mounts = append(response.Mounts, &kubeletdevicepluginv1beta1.Mount{
+					// ld.so.preload 是一个用于指定动态链接器（ld.so）在加载程序时预先加载某些共享库的文件
+					ContainerPath: "/etc/ld.so.preload",
+					HostPath:      hostHookPath + "/vgpu/ld.so.preload",
+					ReadOnly:      true},
 				)
 			}
 			_, err = os.Stat(fmt.Sprintf("%s/vgpu/license", hostHookPath))
@@ -468,6 +477,7 @@ func (plugin *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *kubeletdev
 					ReadOnly:      true,
 				})
 				response.Mounts = append(response.Mounts, &kubeletdevicepluginv1beta1.Mount{
+					// /usr/bin/vgpuvalidator通常是与虚拟图形处理单元（Virtual GPU，VGPU）相关的验证工具。它主要用于验证系统中与 VGPU 相关的配置和功能是否正常工作
 					ContainerPath: "/usr/bin/vgpuvalidator",
 					HostPath:      fmt.Sprintf("%s/vgpu/vgpuvalidator", hostHookPath),
 					ReadOnly:      true,
@@ -500,6 +510,7 @@ func (plugin *NvidiaDevicePlugin) getAllocateResponse(requestIds []string) (*kub
 			response.Mounts = plugin.apiMounts(deviceIDs)
 		}*/
 	if *plugin.config.Flags.Plugin.PassDeviceSpecs {
+		// 挂载英伟达相关的设备路径，譬如：/dev/nvidiactl, /dev/nvidia-uvm, /dev/nvidia-uvm-tools, /dev/nvidia-modeset, /dev/nvidia0, /dev/nvidia1, ...
 		response.Devices = plugin.apiDeviceSpecs(*plugin.config.Flags.NvidiaDriverRoot, requestIds)
 	}
 	if *plugin.config.Flags.GDSEnabled {
@@ -625,6 +636,7 @@ func (plugin *NvidiaDevicePlugin) apiMounts(deviceIDs []string) []*kubeletdevice
 	return mounts
 }*/
 
+// 挂载英伟达相关的设备路径，譬如：/dev/nvidiactl, /dev/nvidia-uvm, /dev/nvidia-uvm-tools, /dev/nvidia-modeset, /dev/nvidia0, /dev/nvidia1, ...
 func (plugin *NvidiaDevicePlugin) apiDeviceSpecs(driverRoot string, ids []string) []*kubeletdevicepluginv1beta1.DeviceSpec {
 	optional := map[string]bool{
 		"/dev/nvidiactl":        true,
