@@ -269,6 +269,7 @@ func (s *Scheduler) getNodesUsage(nodes *[]string, task *corev1.Pod) (*map[strin
 	cachenodeMap := make(map[string]*NodeUsage)
 	failedNodes := make(map[string]string)
 	//for _, nodeID := range *nodes {
+	// 从node缓存中获取所有的节点信息
 	allNodes, err := s.ListNodes()
 	if err != nil {
 		return &overallnodeMap, failedNodes, err
@@ -383,6 +384,7 @@ func (s *Scheduler) Bind(args extenderv1.ExtenderBindingArgs) (*extenderv1.Exten
 		ObjectMeta: metav1.ObjectMeta{Name: args.PodName, UID: args.PodUID},
 		Target:     corev1.ObjectReference{Kind: "Node", Name: args.Node},
 	}
+	// TODO 直接从APIServer中获取绑定的Pod，效率会不会太低？ 对于万卡调度的情况如何处理？
 	current, err := s.kubeClient.CoreV1().Pods(args.PodNamespace).Get(context.Background(), args.PodName, metav1.GetOptions{})
 	if err != nil {
 		klog.ErrorS(err, "Get pod failed")
@@ -398,6 +400,9 @@ func (s *Scheduler) Bind(args extenderv1.ExtenderBindingArgs) (*extenderv1.Exten
 		return res, nil
 	}
 
+	// 1. 给节点加锁
+	// 2. TODO 这里什么需要加锁？ 不加锁可不可以？ 加锁期间做了哪些事情？什么时候释放的锁？
+	// 3. TODO 为什么不是所有类型的设备都需要加锁，只有英伟达和寒武纪的设备需要加锁？
 	tmppatch := make(map[string]string)
 	for _, val := range device.GetDevices() {
 		err = val.LockNode(node, current)
@@ -407,6 +412,7 @@ func (s *Scheduler) Bind(args extenderv1.ExtenderBindingArgs) (*extenderv1.Exten
 	}
 
 	// 分配资源阶段
+	// TODO 这个状态什么时候改变？
 	tmppatch[util.DeviceBindPhase] = "allocating"
 	tmppatch[util.BindTimeAnnotations] = strconv.FormatInt(time.Now().Unix(), 10)
 
@@ -414,10 +420,12 @@ func (s *Scheduler) Bind(args extenderv1.ExtenderBindingArgs) (*extenderv1.Exten
 	if err != nil {
 		klog.ErrorS(err, "patch pod annotation failed")
 	}
+	// 绑定节点
 	if err = s.kubeClient.CoreV1().Pods(args.PodNamespace).Bind(context.Background(), binding, metav1.CreateOptions{}); err != nil {
 		klog.ErrorS(err, "Failed to bind pod", "pod", args.PodName, "namespace", args.PodNamespace, "podUID", args.PodUID, "node", args.Node)
 	}
 	if err == nil {
+		// 记录Pod绑定成功的事件
 		s.recordScheduleBindingResultEvent(current, EventReasonBindingSucceed, []string{args.Node}, nil)
 		res = &extenderv1.ExtenderBindingResult{
 			Error: "",
@@ -490,6 +498,7 @@ func (s *Scheduler) Filter(args extenderv1.ExtenderArgs) (*extenderv1.ExtenderFi
 	annotations[util.AssignedTimeAnnotations] = strconv.FormatInt(time.Now().Unix(), 10)
 
 	for _, val := range device.GetDevices() {
+		// 本质上是为了增加注解，不同类型的gpu可能需要打上不同的注解
 		val.PatchAnnotations(&annotations, m.Devices)
 	}
 
@@ -505,6 +514,7 @@ func (s *Scheduler) Filter(args extenderv1.ExtenderArgs) (*extenderv1.ExtenderFi
 		return nil, err
 	}
 	s.recordScheduleFilterResultEvent(args.Pod, EventReasonFilteringSucceed, []string{m.NodeID}, nil)
+	// 只返回了最合适的一个node
 	res := extenderv1.ExtenderFilterResult{NodeNames: &[]string{m.NodeID}}
 	return &res, nil
 }

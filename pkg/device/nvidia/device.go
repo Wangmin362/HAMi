@@ -164,6 +164,7 @@ func (dev *NvidiaGPUDevices) LockNode(n *corev1.Node, p *corev1.Pod) error {
 			break
 		}
 	}
+	// 只有当前Pod申请了nvidia.com/gpu资源，才需要加锁
 	if !found {
 		return nil
 	}

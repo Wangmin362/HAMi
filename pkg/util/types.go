@@ -24,9 +24,9 @@ const (
 	//ResourceName = "nvidia.com/gpu"
 	//ResourceName = "hami.io/vgpu".
 	AssignedTimeAnnotations = "hami.io/vgpu-time"
-	AssignedNodeAnnotations = "hami.io/vgpu-node"
-	BindTimeAnnotations     = "hami.io/bind-time"
-	DeviceBindPhase         = "hami.io/bind-phase"
+	AssignedNodeAnnotations = "hami.io/vgpu-node"  // 在extender的filter节点会被hami-scheduler设置为合适的节点名
+	BindTimeAnnotations     = "hami.io/bind-time"  // Pod绑定到Node的时间，由hami-scheduler在bind api中设置
+	DeviceBindPhase         = "hami.io/bind-phase" // Pod的绑定状态，由hami-scheduler在bind api中设置为allocate TODO 谁会改？
 
 	DeviceBindAllocating = "allocating"
 	DeviceBindFailed     = "failed"
@@ -123,7 +123,7 @@ const (
 	NodeSchedulerPolicySpread SchedulerPolicyName = "spread"
 	// GPUSchedulerPolicyBinpack is GPU use binpack scheduler.
 	GPUSchedulerPolicyBinpack SchedulerPolicyName = "binpack"
-	// GPUSchedulerPolicySpread is GPU use spread scheduler.
+	// GPUSchedulerPolicySpread is GPU use spread scheduler.  TODO spread调度策略有啥用？
 	GPUSchedulerPolicySpread SchedulerPolicyName = "spread"
 )
 

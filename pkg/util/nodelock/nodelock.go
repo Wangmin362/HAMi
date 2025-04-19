@@ -109,9 +109,15 @@ func LockNode(nodeName string, lockname string, pods *corev1.Pod) error {
 	if err != nil {
 		return err
 	}
+	// 如果当前节点没有上锁，那么直接上锁
+	// Q: 这里会存在并发竞争问题么？ A: 不会，因为内部是更新操作，K8S每个资源都有一个版本号，如果其他人先更新了，当前操作的更新就会失败，因为
+	// 当前协程没有拿到最新的版本号，所以会更新失败
 	if _, ok := node.ObjectMeta.Annotations[NodeLockKey]; !ok {
 		return SetNodeLock(nodeName, lockname, pods)
 	}
+
+	// 说明有其它Pod需要申请这个节点的设备，加了一把锁
+
 	lockTime, _, _, err := ParseNodeLock(node.ObjectMeta.Annotations[NodeLockKey])
 	if err != nil {
 		return err

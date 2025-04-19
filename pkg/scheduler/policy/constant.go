@@ -35,6 +35,7 @@ func (s SchedulerPolicyName) String() string {
 
 const (
 	// NodeSchedulerPolicyAnnotationKey is user set Pod annotation to change this default node policy.
+	// TODO 有啥作用？
 	NodeSchedulerPolicyAnnotationKey = "hami.io/node-scheduler-policy"
 	// GPUSchedulerPolicyAnnotationKey is user set Pod annotation to change this default GPU policy.
 	GPUSchedulerPolicyAnnotationKey = "hami.io/gpu-scheduler-policy"
