@@ -77,6 +77,7 @@ func ParseConfig(fs *flag.FlagSet) {
 }
 
 func (dev *DCUDevices) MutateAdmission(ctr *corev1.Container, p *corev1.Pod) (bool, error) {
+	// 判断是否使用 hygon.com/dcunum 资源
 	_, ok := ctr.Resources.Limits[corev1.ResourceName(HygonResourceCount)]
 	return ok, nil
 }

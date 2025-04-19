@@ -33,6 +33,7 @@ type NodeUsage struct {
 	Devices policy.DeviceUsageList
 }
 
+// 本质上是一个node缓存
 type nodeManager struct {
 	nodes map[string]*util.NodeInfo
 	mutex sync.RWMutex

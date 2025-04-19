@@ -44,6 +44,7 @@ type PodUseDeviceStat struct {
 	UseDevicePod int
 }
 
+// 本质上是一个Pod缓存
 type podManager struct {
 	pods  map[k8stypes.UID]*podInfo
 	mutex sync.RWMutex
@@ -62,6 +63,7 @@ func (m *podManager) addPod(pod *corev1.Pod, nodeID string, devices util.PodDevi
 		m.pods[pod.UID] = pi
 		klog.Infof("Pod added: Name: %s, UID: %s, Namespace: %s, NodeID: %s", pod.Name, pod.UID, pod.Namespace, nodeID)
 	}
+	//	TODO 为什么存在了就不需要关了？ 难道不需要更新么？
 }
 
 func (m *podManager) delPod(pod *corev1.Pod) {

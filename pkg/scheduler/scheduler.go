@@ -43,8 +43,8 @@ import (
 )
 
 type Scheduler struct {
-	nodeManager
-	podManager
+	nodeManager // 本质上是一个node缓存
+	podManager  // 本质上是一个Pod缓存
 
 	stopCh     chan struct{}
 	kubeClient kubernetes.Interface
@@ -95,6 +95,7 @@ func (s *Scheduler) onAddPod(obj interface{}) {
 		klog.Errorf("unknown add object type")
 		return
 	}
+	// pod没有hami.io/vgpu-node注解，直接退出
 	nodeID, ok := pod.Annotations[util.AssignedNodeAnnotations]
 	if !ok {
 		return
@@ -128,6 +129,7 @@ func (s *Scheduler) Start() {
 	kubeClient, err := k8sutil.NewClient()
 	check(err)
 	s.kubeClient = kubeClient
+	// 监听node和pod的变化, 并且每隔一个小时强制更新一次
 	informerFactory := informers.NewSharedInformerFactoryWithOptions(s.kubeClient, time.Hour*1)
 	s.podLister = informerFactory.Core().V1().Pods().Lister()
 	s.nodeLister = informerFactory.Core().V1().Nodes().Lister()

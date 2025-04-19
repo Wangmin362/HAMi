@@ -104,6 +104,7 @@ func (dev *Devices) CommonWord() string {
 }
 
 func (dev *Devices) MutateAdmission(ctr *corev1.Container, p *corev1.Pod) (bool, error) {
+	// 判断是否申请昇腾资源
 	count, ok := ctr.Resources.Limits[corev1.ResourceName(dev.config.ResourceName)]
 	if !ok {
 		return false, nil

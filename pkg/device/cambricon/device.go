@@ -210,6 +210,7 @@ func (dev *CambriconDevices) AssertNuma(annos map[string]string) bool {
 }
 
 func (dev *CambriconDevices) MutateAdmission(ctr *corev1.Container, p *corev1.Pod) (bool, error) {
+	// 判断是否申请 cambricon.com/vmlu 资源
 	_, ok := ctr.Resources.Limits[corev1.ResourceName(MLUResourceCount)]
 	return ok, nil
 }

@@ -64,6 +64,7 @@ func ParseConfig(fs *flag.FlagSet) {
 }
 
 func (dev *MetaxDevices) MutateAdmission(ctr *corev1.Container, p *corev1.Pod) (bool, error) {
+	// 判断是否使用
 	_, ok := ctr.Resources.Limits[corev1.ResourceName(MetaxResourceCount)]
 	return ok, nil
 }

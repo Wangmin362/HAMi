@@ -205,30 +205,38 @@ func (dev *NvidiaGPUDevices) GetNodeDevices(n corev1.Node) ([]*api.DeviceInfo, e
 
 func (dev *NvidiaGPUDevices) MutateAdmission(ctr *corev1.Container, p *corev1.Pod) (bool, error) {
 	/*gpu related */
+	// 从代码看来，可以通过在Resource中设置优先级资源设置任务的优先级
 	priority, ok := ctr.Resources.Limits[corev1.ResourceName(dev.config.ResourcePriority)]
 	if ok {
 		ctr.Env = append(ctr.Env, corev1.EnvVar{
+			// 设置当前容器的任务优先级，显然优先级的设置意味着高优先级会抢占低优先级的任务
 			Name:  api.TaskPriority,
 			Value: fmt.Sprint(priority.Value()),
 		})
 	}
 
+	// 判断是否申请了 nvidia.com/gpu资源，如果申请了，就归hami-scheduler调度
 	_, resourceNameOK := ctr.Resources.Limits[corev1.ResourceName(dev.config.ResourceCountName)]
 	if resourceNameOK {
 		return resourceNameOK, nil
 	}
 
+	// 判断是否申请nvidia.com/gpucores资源
 	_, resourceCoresOK := ctr.Resources.Limits[corev1.ResourceName(dev.config.ResourceCoreName)]
+	// 判断是否申请nvidia.com/gpumem资源
 	_, resourceMemOK := ctr.Resources.Limits[corev1.ResourceName(dev.config.ResourceMemoryName)]
+	// 判断是否申请nvidia.com/gpumem-percentage资源
 	_, resourceMemPercentageOK := ctr.Resources.Limits[corev1.ResourceName(dev.config.ResourceMemoryPercentageName)]
 
 	if resourceCoresOK || resourceMemOK || resourceMemPercentageOK {
 		if dev.config.DefaultGPUNum > 0 {
+			// 添加nvidia.com/gpu资源
 			ctr.Resources.Limits[corev1.ResourceName(dev.config.ResourceCountName)] = *resource.NewQuantity(int64(dev.config.DefaultGPUNum), resource.BinarySI)
 			resourceNameOK = true
 		}
 	}
 
+	// 如果没有申请惹怒恶化资源，那么就设置NVIDIA_VISIBLE_DEVICES=none，禁止容器访问GPU设备
 	if !resourceNameOK && dev.config.OverwriteEnv {
 		ctr.Env = append(ctr.Env, corev1.EnvVar{
 			Name:  "NVIDIA_VISIBLE_DEVICES",

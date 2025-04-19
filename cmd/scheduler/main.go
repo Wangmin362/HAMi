@@ -69,6 +69,7 @@ func init() {
 func start() {
 	device.InitDevices()
 	sher = scheduler.NewScheduler()
+	// 启动Infromer，并且等待Pod，node资源同步完成
 	sher.Start()
 	defer sher.Stop()
 
@@ -78,8 +79,15 @@ func start() {
 
 	// start http server
 	router := httprouter.New()
+	// extender回调接口
 	router.POST("/filter", routes.PredicateRoute(sher))
 	router.POST("/bind", routes.Bind(sher))
+	// 1. webhook回调接口
+	// 2. webhook的核心功能其实就是把Pod的schedulerName设置为hami-scheduler. 这样这些Pod后续的调度就会交给hami-scheduler来处理
+	// 3. 但是webhook也并非修改所有的Pod的调度器都设置为hami-scheduler, 而是根据Pod的申请资源来决定的，如果Pod的申请资源当中包含了
+	// gpu, 昇腾，天数，摩尔线程等等厂商的资源，那么就会把Pod的调度器设置为hami-scheduler, 否则就忽略这个Pod，相当于交给默认的调度器来处理
+	// 4. 另外，如果当前Pod的nodeName已经被设置了，说明用户在创建这个Pod的时候就希望这个Pod被调度到指定的节点上，此时webhook也会忽略这个Pod，
+	// 显然，对于这种类型的Pod，很有可能节点不足，存在Pod一直处于Pending状态的情况
 	router.POST("/webhook", routes.WebHookRoute())
 	router.GET("/healthz", routes.HealthzRoute())
 	klog.Info("listen on ", config.HTTPBind)

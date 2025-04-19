@@ -76,6 +76,7 @@ func ParseConfig(fs *flag.FlagSet) {
 }
 
 func (dev *IluvatarDevices) MutateAdmission(ctr *corev1.Container, p *corev1.Pod) (bool, error) {
+	// 判断是否申请了iluvatar.ai/vgpu资源
 	count, ok := ctr.Resources.Limits[corev1.ResourceName(IluvatarResourceCount)]
 	if ok {
 		if count.Value() > 1 {
