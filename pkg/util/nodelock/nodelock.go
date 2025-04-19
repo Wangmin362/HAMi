@@ -116,6 +116,7 @@ func LockNode(nodeName string, lockname string, pods *corev1.Pod) error {
 	if err != nil {
 		return err
 	}
+	// 也就是说锁持有者必须在五分钟之内搞定，否则会被其他人释放
 	if time.Since(lockTime) > time.Minute*5 {
 		klog.InfoS("Node lock expired", "node", nodeName, "lockTime", lockTime)
 		err = ReleaseNodeLock(nodeName, lockname)

@@ -406,6 +406,7 @@ func (s *Scheduler) Bind(args extenderv1.ExtenderBindingArgs) (*extenderv1.Exten
 		}
 	}
 
+	// 分配资源阶段
 	tmppatch[util.DeviceBindPhase] = "allocating"
 	tmppatch[util.BindTimeAnnotations] = strconv.FormatInt(time.Now().Unix(), 10)
 
@@ -435,8 +436,10 @@ ReleaseNodeLocks:
 	}, nil
 }
 
+// Filter 给当前指定的Pod过滤出合适的Node
 func (s *Scheduler) Filter(args extenderv1.ExtenderArgs) (*extenderv1.ExtenderFilterResult, error) {
 	klog.InfoS("begin schedule filter", "pod", args.Pod.Name, "uuid", args.Pod.UID, "namespaces", args.Pod.Namespace)
+	// 解析出当前Pod每个容器申请的资源数量
 	nums := k8sutil.Resourcereqs(args.Pod)
 	total := 0
 	for _, n := range nums {
@@ -454,6 +457,7 @@ func (s *Scheduler) Filter(args extenderv1.ExtenderArgs) (*extenderv1.ExtenderFi
 		}, nil
 	}
 	annos := args.Pod.Annotations
+	// TODO 这里为什么需要把Pod从缓存中移除？
 	s.delPod(args.Pod)
 	nodeUsage, failedNodes, err := s.getNodesUsage(args.NodeNames, args.Pod)
 	if err != nil {
@@ -478,6 +482,7 @@ func (s *Scheduler) Filter(args extenderv1.ExtenderArgs) (*extenderv1.ExtenderFi
 	}
 	klog.V(4).Infoln("nodeScores_len=", len((*nodeScores).NodeList))
 	sort.Sort(nodeScores)
+	// 取出分数最高的Node
 	m := (*nodeScores).NodeList[len((*nodeScores).NodeList)-1]
 	klog.Infof("schedule %v/%v to %v %v", args.Pod.Namespace, args.Pod.Name, m.NodeID, m.Devices)
 	annotations := make(map[string]string)

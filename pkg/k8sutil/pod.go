@@ -24,6 +24,7 @@ import (
 	"k8s.io/klog/v2"
 )
 
+// Resourcereqs 解析出当前Pod每个容器申请的资源数量
 func Resourcereqs(pod *corev1.Pod) (counts util.PodDeviceRequests) {
 	counts = make(util.PodDeviceRequests, len(pod.Spec.Containers))
 	//Count Nvidia GPU

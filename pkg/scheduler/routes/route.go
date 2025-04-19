@@ -83,8 +83,8 @@ func Bind(s *scheduler.Scheduler) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		var buf bytes.Buffer
 		body := io.TeeReader(r.Body, &buf)
-		var extenderBindingArgs extenderv1.ExtenderBindingArgs
-		var extenderBindingResult *extenderv1.ExtenderBindingResult
+		var extenderBindingArgs extenderv1.ExtenderBindingArgs      // 入参
+		var extenderBindingResult *extenderv1.ExtenderBindingResult // 返回值
 
 		if err := json.NewDecoder(body).Decode(&extenderBindingArgs); err != nil {
 			klog.ErrorS(err, "Decode extender binding args")
@@ -92,6 +92,7 @@ func Bind(s *scheduler.Scheduler) httprouter.Handle {
 				Error: err.Error(),
 			}
 		} else {
+			// 找到一个合适的Node进行绑定
 			extenderBindingResult, err = s.Bind(extenderBindingArgs)
 		}
 

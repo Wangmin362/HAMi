@@ -61,8 +61,8 @@ type ContainerDevice struct {
 }
 
 type ContainerDeviceRequest struct {
-	Nums             int32
-	Type             string
+	Nums             int32  // 请求的资源数量，譬如2个cpu，或者2个gpu
+	Type             string // 这里应该是资源类型
 	Memreq           int32
 	MemPercentagereq int32
 	Coresreq         int32
@@ -70,12 +70,15 @@ type ContainerDeviceRequest struct {
 
 // 一个容器可能申请多个gpu设备
 type ContainerDevices []ContainerDevice
+
+// 每个容器可以申请多种不同类型的资源，key为资源类型，value为资源请求
 type ContainerDeviceRequests map[string]ContainerDeviceRequest
 
 // type ContainerAllDevices map[string]ContainerDevices.
 // 一个pod可能有多个容器
 type PodSingleDevice []ContainerDevices
 
+// 当前Pod申请的资源
 type PodDeviceRequests []ContainerDeviceRequests
 type PodDevices map[string]PodSingleDevice
 
