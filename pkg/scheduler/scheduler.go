@@ -276,10 +276,12 @@ func (s *Scheduler) getNodesUsage(nodes *[]string, task *corev1.Pod) (*map[strin
 		return &overallnodeMap, failedNodes, err
 	}
 
+	// 获取当前总的资源情况
 	for _, node := range allNodes {
 		nodeInfo := &NodeUsage{}
 		userGPUPolicy := config.GPUSchedulerPolicy
 		if task != nil && task.Annotations != nil {
+			// 用户可以字节在Pod的annotations中设置node-scheduler-policy和gpu-scheduler-policy来改变默认的调度策略
 			if value, ok := task.Annotations[policy.GPUSchedulerPolicyAnnotationKey]; ok {
 				userGPUPolicy = value
 			}
@@ -310,6 +312,7 @@ func (s *Scheduler) getNodesUsage(nodes *[]string, task *corev1.Pod) (*map[strin
 		overallnodeMap[node.ID] = nodeInfo
 	}
 
+	// 获取当前节点上Pod已经使用的资源情况
 	podsInfo := s.ListPodsInfo()
 	for _, p := range podsInfo {
 		node, ok := overallnodeMap[p.NodeID]
@@ -466,7 +469,6 @@ func (s *Scheduler) Filter(args extenderv1.ExtenderArgs) (*extenderv1.ExtenderFi
 		}, nil
 	}
 	annos := args.Pod.Annotations
-	// TODO 这里为什么需要把Pod从缓存中移除？
 	s.delPod(args.Pod)
 	nodeUsage, failedNodes, err := s.getNodesUsage(args.NodeNames, args.Pod)
 	if err != nil {

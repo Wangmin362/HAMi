@@ -329,7 +329,9 @@ func (dev *NvidiaGPUDevices) PatchAnnotations(annoinput *map[string]string, pd u
 	devlist, ok := pd[NvidiaGPUDevice]
 	if ok && len(devlist) > 0 {
 		deviceStr := util.EncodePodSingleDevice(devlist)
+		// hami.io/vgpu-devices-to-allocate
 		(*annoinput)[util.InRequestDevices[NvidiaGPUDevice]] = deviceStr
+		// hami.io/vgpu-devices-allocated
 		(*annoinput)[util.SupportDevices[NvidiaGPUDevice]] = deviceStr
 		klog.V(5).Infof("pod add notation key [%s], values is [%s]", util.InRequestDevices[NvidiaGPUDevice], deviceStr)
 		klog.V(5).Infof("pod add notation key [%s], values is [%s]", util.SupportDevices[NvidiaGPUDevice], deviceStr)

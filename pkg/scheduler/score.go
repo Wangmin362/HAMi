@@ -226,6 +226,7 @@ func (s *Scheduler) calcScore(nodes *map[string]*NodeUsage, nums util.PodDeviceR
 				}
 			}
 			klog.V(5).InfoS("fitInDevices", "pod", klog.KObj(task), "node", nodeID)
+			// 选择设备
 			fit, _ := fitInDevices(node, n, annos, task, &score.Devices)
 			ctrfit = fit
 			if !fit {
