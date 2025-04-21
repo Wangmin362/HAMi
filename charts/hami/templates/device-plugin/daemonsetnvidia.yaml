@@ -75,7 +75,7 @@ spec:
               mountPath: /config
             - name: hosttmp
               mountPath: /tmp
-            - name: device-config
+            - name: device-config  # 各个芯片厂商定义的配置
               mountPath: /device-config.yaml
               subPath: device-config.yaml
         - name: vgpu-monitor

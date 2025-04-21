@@ -55,6 +55,7 @@ func newGPUDevice(i int, gpu nvml.Device) (string, deviceInfo) {
 	return index, nvmlDevice{gpu}
 }
 
+// 第i个卡的第j个MIG设备
 func newMigDevice(i int, j int, mig nvml.Device) (string, nvmlMigDevice) {
 	return fmt.Sprintf("%v:%v", i, j), nvmlMigDevice{mig}
 }

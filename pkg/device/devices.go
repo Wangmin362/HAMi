@@ -59,6 +59,7 @@ type Devices interface {
 	//ParseConfig(fs *flag.FlagSet)
 }
 
+// Config 这里主要定义的是不同厂商的配置
 type Config struct {
 	NvidiaConfig    nvidia.NvidiaConfig       `yaml:"nvidia"`
 	MetaxConfig     metax.MetaxConfig         `yaml:"metax"`

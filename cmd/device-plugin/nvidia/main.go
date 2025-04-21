@@ -50,7 +50,7 @@ func main() {
 
 	c.Flags = []cli.Flag{
 		&cli.StringFlag{
-			Name:    "mig-strategy",
+			Name:    "mig-strategy", // MIG策略，默认不使用MIG策略，MIG意味着把一个GPU划分为多个GPU，但是MIG和GPU虚拟化是两个技术
 			Value:   spec.MigStrategyNone,
 			Usage:   "the desired strategy for exposing MIG devices on GPUs that support it:\n\t\t[none | single | mixed]",
 			EnvVars: []string{"MIG_STRATEGY"},
@@ -68,7 +68,7 @@ func main() {
 			EnvVars: []string{"NVIDIA_DRIVER_ROOT"},
 		},
 		&cli.BoolFlag{
-			Name:    "pass-device-specs",
+			Name:    "pass-device-specs", // TODO 有啥用？
 			Value:   false,
 			Usage:   "pass the list of DeviceSpecs to the kubelet on Allocate()",
 			EnvVars: []string{"PASS_DEVICE_SPECS"},
@@ -103,7 +103,7 @@ func main() {
 		},
 		&cli.StringFlag{
 			Name:    "cdi-annotation-prefix",
-			Value:   spec.DefaultCDIAnnotationPrefix,
+			Value:   spec.DefaultCDIAnnotationPrefix, // 默认值为：cdi.k8s.io/
 			Usage:   "the prefix to use for CDI container annotation keys",
 			EnvVars: []string{"CDI_ANNOTATION_PREFIX"},
 		},
@@ -115,7 +115,7 @@ func main() {
 		},
 		&cli.StringFlag{
 			Name:    "container-driver-root",
-			Value:   spec.DefaultContainerDriverRoot,
+			Value:   spec.DefaultContainerDriverRoot, // 默认在/driver-root
 			Usage:   "the path where the NVIDIA driver root is mounted in the container; used for generating CDI specifications",
 			EnvVars: []string{"CONTAINER_DRIVER_ROOT"},
 		},
@@ -141,6 +141,7 @@ func validateFlags(config *spec.Config) error {
 }
 
 func loadConfig(c *cli.Context, flags []cli.Flag) (*spec.Config, error) {
+	// 这里主要是在加载nvidia的一些配置，hami很多参数应该是直接照抄过来的
 	config, err := spec.NewConfig(c, flags)
 	if err != nil {
 		return nil, fmt.Errorf("unable to finalize config: %v", err)
@@ -251,12 +252,12 @@ func startPlugins(c *cli.Context, flags []cli.Flag, restarting bool) ([]plugin.I
 	if err != nil {
 		return nil, false, fmt.Errorf("unable to load config: %v", err)
 	}
-	// 禁用某些配置  TODO 这里为什么要禁用？
+	// 禁用某些配置  TODO 这里为什么要禁用？ 资源重命名有何影响
 	disableResourceRenamingInConfig(config)
 
 	/*Loading config files*/
 	//fmt.Println("NodeName=", config.NodeName)
-	// 获取nvidia device-plugin的配置
+	// 获取nvidia device-plugin的配置, 主要是想要获取英伟达的ResourceName配置
 	devConfig, err := generateDeviceConfigFromNvidia(config, c, flags)
 	if err != nil {
 		klog.Errorf("failed to load config file %s", err.Error())

@@ -55,7 +55,7 @@ const (
 
 var (
 	hostHookPath string
-	// TODO 这个配置是什么时候赋值的？ 有啥作用？
+	// 初始化的时候会被赋值，其实就是命令行参数 config-file 的值
 	ConfigFile *string
 )
 
@@ -356,7 +356,8 @@ func (plugin *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *kubeletdev
 	// hami.io/vgpu-time, hami.io/vgpu-node, hami.io/bind-time, hami.io/bind-phase注解，判断当前Pod是否是分配设备的Pod;
 	current, err := util.GetPendingPod(ctx, nodename)
 	if err != nil {
-		// TODO 什么时候锁上的？
+		// 节点锁在hami-scheduler中binding节点加上的，也就是说如果一个Pod绑定到了某个节点上，此时在真正给这个Pod分配设备之前，会给对应
+		// 的节点增加一个锁，防止其他Pod也去分配这个节点的设备，从而导致设备分配冲突
 		nodelock.ReleaseNodeLock(nodename, NodeLockNvidia)
 		return &kubeletdevicepluginv1beta1.AllocateResponse{}, err
 	}
@@ -387,6 +388,7 @@ func (plugin *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *kubeletdev
 			}
 			responses.ContainerResponses = append(responses.ContainerResponses, response)
 		} else {
+			// 获取当前Pod请求GPU的容器，以及请求的设备
 			currentCtr, devreq, err := util.GetNextDeviceRequest(nvidia.NvidiaGPUDevice, *current)
 			klog.Infoln("deviceAllocateFromAnnotation=", devreq)
 			if err != nil {
@@ -433,17 +435,18 @@ func (plugin *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *kubeletdev
 
 			os.MkdirAll(cacheFileHostDirectory, 0777)
 			os.Chmod(cacheFileHostDirectory, 0777)
-			// TODO 这里在干嘛？ 为什么要这么做？ 为了解决什么问题？
 			os.MkdirAll("/tmp/vgpulock", 0777)
 			os.Chmod("/tmp/vgpulock", 0777)
 			response.Mounts = append(response.Mounts,
 				&kubeletdevicepluginv1beta1.Mount{ContainerPath: fmt.Sprintf("%s/vgpu/libvgpu.so", hostHookPath),
-					// TODO libvgpu.so是干啥的？
+					// 1. libvgpu.so就是HAMi实现内存和算力隔离的核心，本质上就是对于CUDA, NVML等API的封装，使得用户可以通过这些API来实现内存和算力的隔离
+					// 2. 这里主要是还是用于替换英伟达默认的驱动，从而实现内存和算力的隔离
 					HostPath: hostHookPath + "/vgpu/libvgpu.so",
 					ReadOnly: true},
 				&kubeletdevicepluginv1beta1.Mount{ContainerPath: fmt.Sprintf("%s/vgpu", hostHookPath),
 					HostPath: cacheFileHostDirectory,
 					ReadOnly: false},
+				//	TODO /tmp/vgpulock 这个目录是用来存放锁文件的，用于防止多个Pod同时分配同一个设备
 				&kubeletdevicepluginv1beta1.Mount{ContainerPath: "/tmp/vgpulock",
 					HostPath: "/tmp/vgpulock",
 					ReadOnly: false},
@@ -477,7 +480,8 @@ func (plugin *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *kubeletdev
 					ReadOnly:      true,
 				})
 				response.Mounts = append(response.Mounts, &kubeletdevicepluginv1beta1.Mount{
-					// /usr/bin/vgpuvalidator通常是与虚拟图形处理单元（Virtual GPU，VGPU）相关的验证工具。它主要用于验证系统中与 VGPU 相关的配置和功能是否正常工作
+					// /usr/bin/vgpuvalidator通常是与虚拟图形处理单元（Virtual GPU，VGPU）相关的验证工具。
+					// 它主要用于验证系统中与 VGPU 相关的配置和功能是否正常工作
 					ContainerPath: "/usr/bin/vgpuvalidator",
 					HostPath:      fmt.Sprintf("%s/vgpu/vgpuvalidator", hostHookPath),
 					ReadOnly:      true,
@@ -487,6 +491,7 @@ func (plugin *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *kubeletdev
 		}
 	}
 	klog.Infoln("Allocate Response", responses.ContainerResponses)
+	// 释放节点锁
 	device.PodAllocationTrySuccess(nodename, nvidia.NvidiaGPUDevice, NodeLockNvidia, current)
 	return &responses, nil
 }
@@ -500,6 +505,8 @@ func (plugin *NvidiaDevicePlugin) getAllocateResponse(requestIds []string) (*kub
 		return nil, fmt.Errorf("failed to get allocate response for CDI: %v", err)
 	}
 
+	// 这里非常重要，通过NVIDIA_VISIBLE_DEVICES环境变量，告诉容器运行时哪些设备是可见的，nvidia-container-runtime会根据这个环境变量来
+	// 挂载对应的驱动文件，设备文件
 	response.Envs = plugin.apiEnvs(plugin.deviceListEnvvar, deviceIDs)
 	//if plugin.deviceListStrategies.Includes(spec.DeviceListStrategyVolumeMounts) || plugin.deviceListStrategies.Includes(spec.DeviceListStrategyEnvvar) {
 	//	response.Envs = plugin.apiEnvs(plugin.deviceListEnvvar, deviceIDs)

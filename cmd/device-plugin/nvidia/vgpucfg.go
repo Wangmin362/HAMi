@@ -34,31 +34,31 @@ import (
 func addFlags() []cli.Flag {
 	addition := []cli.Flag{
 		&cli.StringFlag{
-			Name:    "node-name",
+			Name:    "node-name", // 指定当前节点名，
 			Value:   os.Getenv(util.NodeNameEnvName),
 			Usage:   "node name",
-			EnvVars: []string{"NodeName"},
+			EnvVars: []string{"NodeName"}, // 如果启动参数中没有指定，将会默认使用NodeName环境变量，如果命令行制定了，那么将会使用命令行
 		},
 		&cli.UintFlag{
-			Name:    "device-split-count",
+			Name:    "device-split-count", // GPU超额售卖的数量，即一个GPU可以同时被几个进程使用。默认是2，也就是说一个GPU默认可以被两个进程同时使用
 			Value:   2,
 			Usage:   "the number for NVIDIA device split",
 			EnvVars: []string{"DEVICE_SPLIT_COUNT"},
 		},
 		&cli.Float64Flag{
-			Name:    "device-memory-scaling",
+			Name:    "device-memory-scaling", // GPU内存超卖 TODO 理解原理
 			Value:   1.0,
 			Usage:   "the ratio for NVIDIA device memory scaling",
 			EnvVars: []string{"DEVICE_MEMORY_SCALING"},
 		},
 		&cli.Float64Flag{
-			Name:    "device-cores-scaling",
+			Name:    "device-cores-scaling", // GPU核心数超卖原理 TODO 理解原理
 			Value:   1.0,
 			Usage:   "the ratio for NVIDIA device cores scaling",
 			EnvVars: []string{"DEVICE_CORES_SCALING"},
 		},
 		&cli.BoolFlag{
-			Name:    "disable-core-limit",
+			Name:    "disable-core-limit", // TODO 这玩意是用来干嘛的？
 			Value:   false,
 			Usage:   "If set, the core utilization limit will be ignored",
 			EnvVars: []string{"DISABLE_CORE_LIMIT"},
@@ -97,6 +97,7 @@ func updateFromCLIFlag[T any](pflag **T, c *cli.Context, flagName string) {
 	}
 }
 
+// 主要是想要获取英伟达的ResourceName配置
 func generateDeviceConfigFromNvidia(cfg *spec.Config, c *cli.Context, flags []cli.Flag) (nvidia.DeviceConfig, error) {
 	devcfg := nvidia.DeviceConfig{}
 	devcfg.Config = cfg
@@ -117,6 +118,7 @@ func generateDeviceConfigFromNvidia(cfg *spec.Config, c *cli.Context, flags []cl
 	if err != nil {
 		klog.Fatalf("failed to load ascend vnpu config file %s: %v", *plugin.ConfigFile, err)
 	}
+	// 当前的device-plugin本身就是给英伟达gpu使用的，所以这里直接赋值没有啥问题
 	devcfg.ResourceName = &config.NvidiaConfig.ResourceCountName
 	klog.Infoln("reading config=", config.NvidiaConfig.ResourceCountName, "devcfg", *devcfg.ResourceName, "configfile=", *plugin.ConfigFile)
 	return devcfg, nil

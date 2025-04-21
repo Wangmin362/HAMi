@@ -51,6 +51,7 @@ func (b *deviceMapBuilder) build() (DeviceMap, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error building device map from config.resources: %v", err)
 	}
+	// 本质上这里就是TimeSlicing原理的实现，本质上就是把一个GPU上报replica数量个GPU
 	devices, err = updateDeviceMapWithReplicas(b.config, devices)
 	if err != nil {
 		return nil, fmt.Errorf("error updating device map with replicas from config.sharing.timeSlicing.resources: %v", err)
@@ -120,7 +121,7 @@ func (b *deviceMapBuilder) buildGPUDeviceMap() (DeviceMap, error) {
 		if err != nil {
 			return fmt.Errorf("error checking if MIG is enabled on GPU: %v", err)
 		}
-		// TODO 如果开启了MIG，但是MIG策略不是None，那么就不应该将GPU设备加入到设备映射表中
+		// 当前函数只关心GPU mig-strategy为none的情况
 		if migEnabled && *b.config.Flags.MigStrategy != spec.MigStrategyNone {
 			return nil
 		}
@@ -290,7 +291,7 @@ func (d DeviceMap) getIDsOfDevicesToReplicate(r *spec.ReplicatedResource) ([]str
 }
 
 // updateDeviceMapWithReplicas returns an updated map of resource names to devices with replica information from spec.Config.Sharing.TimeSlicing.Resources
-// TODO 暂时不太懂这里的逻辑
+// 本质上这里就是TimeSlicing原理的实现，本质上就是把一个GPU上报replica数量个GPU
 func updateDeviceMapWithReplicas(config *nvidia.DeviceConfig, oDevices DeviceMap) (DeviceMap, error) {
 	devices := make(DeviceMap)
 
@@ -311,6 +312,7 @@ func updateDeviceMapWithReplicas(config *nvidia.DeviceConfig, oDevices DeviceMap
 	// Walk TimeSlicing.Resources and update devices in the device map as appropriate.
 	for _, r := range config.Sharing.TimeSlicing.Resources {
 		// Get the IDs of the devices we want to replicate from oDevices
+		// 获取需要超卖的GPU
 		ids, err := oDevices.getIDsOfDevicesToReplicate(&r)
 		if err != nil {
 			return nil, fmt.Errorf("unable to get IDs of devices to replicate for '%v' resource: %v", r.Name, err)
@@ -332,6 +334,7 @@ func updateDeviceMapWithReplicas(config *nvidia.DeviceConfig, oDevices DeviceMap
 			name = r.Rename
 		}
 		for _, id := range ids {
+			// 一个GPU上报指定replica数量的设备
 			for i := 0; i < r.Replicas; i++ {
 				annotatedID := string(NewAnnotatedID(id, i))
 				replicatedDevice := *(oDevices[r.Name][id])
