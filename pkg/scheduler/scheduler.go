@@ -168,6 +168,7 @@ func (s *Scheduler) RegisterFromNodeAnnotations() {
 		if len(config.NodeLabelSelector) > 0 {
 			labelSelector = (labels.Set)(config.NodeLabelSelector).AsSelector()
 		}
+		// 从node缓存中获取当前所有的节点信息
 		rawNodes, err := s.nodeLister.List(labelSelector)
 		if err != nil {
 			klog.Errorln("nodes list failed", err.Error())
@@ -498,7 +499,10 @@ func (s *Scheduler) Filter(args extenderv1.ExtenderArgs) (*extenderv1.ExtenderFi
 	annotations[util.AssignedTimeAnnotations] = strconv.FormatInt(time.Now().Unix(), 10)
 
 	for _, val := range device.GetDevices() {
-		// 本质上是为了增加注解，不同类型的gpu可能需要打上不同的注解
+		// 1. 本质上是为了增加注解，不同类型的gpu可能需要打上不同的注解
+		// 2. 这里的核心目的主要是为了告诉device-plugin应该给这个Pod分配哪些设备，设备的分配主要是通过hami-scheduler的filter接口来实现的，
+		// hami-scheduler会根据gpu的分配策略选择合适的设备，然后把分配到的设备写入到节点的注解当中，device-plugin在分配设备的时候，直接从
+		// Pod的hami.io/vgpu-devices-to-allocate注解上获取分配到的设备，然后分配给Pod
 		val.PatchAnnotations(&annotations, m.Devices)
 	}
 

@@ -74,6 +74,7 @@ func start() {
 	defer sher.Stop()
 
 	// start monitor metrics
+	// 获取当前集群中各个节点的资源信息
 	go sher.RegisterFromNodeAnnotations()
 	go initMetrics(config.MetricsBindAddress)
 

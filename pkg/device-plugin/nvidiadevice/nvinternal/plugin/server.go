@@ -369,7 +369,6 @@ func (plugin *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *kubeletdev
 		// error out if more than one resource is being allocated.
 
 		if strings.Contains(req.DevicesIDs[0], "MIG") {
-			// TODO 这里在判断什么？
 			if plugin.config.Sharing.TimeSlicing.FailRequestsGreaterThanOne && rm.AnnotatedIDs(req.DevicesIDs).AnyHasAnnotations() {
 				if len(req.DevicesIDs) > 1 {
 					return nil, fmt.Errorf("request for '%v: %v' too large: maximum request size for shared resources is 1", plugin.rm.Resource(), len(req.DevicesIDs))
@@ -446,7 +445,7 @@ func (plugin *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *kubeletdev
 				&kubeletdevicepluginv1beta1.Mount{ContainerPath: fmt.Sprintf("%s/vgpu", hostHookPath),
 					HostPath: cacheFileHostDirectory,
 					ReadOnly: false},
-				//	TODO /tmp/vgpulock 这个目录是用来存放锁文件的，用于防止多个Pod同时分配同一个设备
+				// /tmp/vgpulock 这个目录是用来存放锁文件的，用于防止多个Pod同时分配同一个设备
 				&kubeletdevicepluginv1beta1.Mount{ContainerPath: "/tmp/vgpulock",
 					HostPath: "/tmp/vgpulock",
 					ReadOnly: false},
