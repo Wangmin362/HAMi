@@ -59,6 +59,99 @@ type Devices interface {
 	//ParseConfig(fs *flag.FlagSet)
 }
 
+/* Config 配置文件大致如下
+nvidia:
+  resourceCountName: nvidia.com/gpu
+  resourceMemoryName: nvidia.com/gpumem
+  resourceMemoryPercentageName: nvidia.com/gpumem-percentage
+  resourceCoreName: nvidia.com/gpucores
+  resourcePriorityName: nvidia.com/priority
+  overwriteEnv: false
+  defaultMemory: 0
+  defaultCores: 0
+  defaultGPUNum: 1
+  deviceSplitCount: 10
+  deviceMemoryScaling: 1
+  deviceCoreScaling: 1
+cambricon:
+  resourceCountName: cambricon.com/vmlu
+  resourceMemoryName: cambricon.com/mlu.smlu.vmemory
+  resourceCoreName: cambricon.com/mlu.smlu.vcore
+hygon:
+  resourceCountName: hygon.com/dcunum
+  resourceMemoryName: hygon.com/dcumem
+  resourceCoreName: hygon.com/dcucores
+metax:
+  resourceCountName: "metax-tech.com/gpu"
+mthreads:
+  resourceCountName: "mthreads.com/vgpu"
+  resourceMemoryName: "mthreads.com/sgpu-memory"
+  resourceCoreName: "mthreads.com/sgpu-core"
+iluvatar:
+  resourceCountName: iluvatar.ai/vgpu
+  resourceMemoryName: iluvatar.ai/vcuda-memory
+  resourceCoreName: iluvatar.ai/vcuda-core
+vnpus:
+  - chipName: 910B
+	commonWord: Ascend910A
+	resourceName: huawei.com/Ascend910A
+	resourceMemoryName: huawei.com/Ascend910A-memory
+	memoryAllocatable: 32768
+	memoryCapacity: 32768
+	aiCore: 30
+	templates:
+	  - name: vir02
+		memory: 2184
+		aiCore: 2
+	  - name: vir04
+		memory: 4369
+		aiCore: 4
+	  - name: vir08
+		memory: 8738
+		aiCore: 8
+	  - name: vir16
+		memory: 17476
+		aiCore: 16
+  - chipName: 910B3
+	commonWord: Ascend910B
+	resourceName: huawei.com/Ascend910B
+	resourceMemoryName: huawei.com/Ascend910B-memory
+	memoryAllocatable: 65536
+	memoryCapacity: 65536
+	aiCore: 20
+	aiCPU: 7
+	templates:
+	  - name: vir05_1c_16g
+		memory: 16384
+		aiCore: 5
+		aiCPU: 1
+	  - name: vir10_3c_32g
+		memory: 32768
+		aiCore: 10
+		aiCPU: 3
+  - chipName: 310P3
+	commonWord: Ascend310P
+	resourceName: huawei.com/Ascend310P
+	resourceMemoryName: huawei.com/Ascend310P-memory
+	memoryAllocatable: 21527
+	memoryCapacity: 24576
+	aiCore: 8
+	aiCPU: 7
+	templates:
+	  - name: vir01
+		memory: 3072
+		aiCore: 1
+		aiCPU: 1
+	  - name: vir02
+		memory: 6144
+		aiCore: 2
+		aiCPU: 2
+	  - name: vir04
+		memory: 12288
+		aiCore: 4
+		aiCPU: 4
+*/
+
 // Config 这里主要定义的是不同厂商的配置
 type Config struct {
 	NvidiaConfig    nvidia.NvidiaConfig       `yaml:"nvidia"`
@@ -83,10 +176,14 @@ func GetDevices() map[string]Devices {
 	return devices
 }
 
-// TODO 这里实例化设备的时候，为什么会有处理英伟达之外的其它厂商的gpu?
+// InitDevicesWithConfig
+// 1. Q: 这里实例化设备的时候，为什么会有处理英伟达之外的其它厂商的gpu?  主要原因是hami-scheduler会使用到这里的信息，hami-scheduler
+// 需要负责调度各个厂商的芯片，因此这里需要知道各个厂商的资源名，主要是初始化hami-scheduler分配的设备信息使用的注解名，以及
+// device-plugin分配设备之后使用的注解名
 func InitDevicesWithConfig(config *Config) {
 	devices = make(map[string]Devices)
 	DevicesToHandle = []string{}
+	// hami目前注册的设备有：NVIDIA, MLU, DCU, Iluvatar, Mthreads, Metax，以及昇腾的芯片
 	devices[nvidia.NvidiaGPUDevice] = nvidia.InitNvidiaDevice(config.NvidiaConfig)
 	devices[cambricon.CambriconMLUDevice] = cambricon.InitMLUDevice(config.CambriconConfig)
 	devices[hygon.HygonDCUDevice] = hygon.InitDCUDevice(config.HygonConfig)
@@ -100,6 +197,7 @@ func InitDevicesWithConfig(config *Config) {
 	DevicesToHandle = append(DevicesToHandle, iluvatar.IluvatarGPUCommonWord)
 	DevicesToHandle = append(DevicesToHandle, mthreads.MthreadsGPUCommonWord)
 	DevicesToHandle = append(DevicesToHandle, metax.MetaxGPUCommonWord)
+	// 昇腾设备初始化
 	for _, dev := range ascend.InitDevices(config.VNPUs) {
 		devices[dev.CommonWord()] = dev
 		DevicesToHandle = append(DevicesToHandle, dev.CommonWord())

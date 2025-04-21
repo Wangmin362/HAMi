@@ -148,6 +148,7 @@ func FilterDeviceToRegister(uuid, indexStr string) bool {
 	return false
 }
 
+// 给节点打注解,类似 hami.io/node-handshake=Deleted_2025.04.21 08:55:49
 func (dev *NvidiaGPUDevices) NodeCleanUp(nn string) error {
 	return util.MarkAnnotationsToDelete(HandshakeAnnos, nn)
 }

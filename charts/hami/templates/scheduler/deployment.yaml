@@ -85,7 +85,7 @@ spec:
             - --metrics-bind-address={{ .Values.scheduler.metricsBindAddress }}
             - --node-scheduler-policy={{ .Values.scheduler.defaultSchedulerPolicy.nodeSchedulerPolicy }}
             - --gpu-scheduler-policy={{ .Values.scheduler.defaultSchedulerPolicy.gpuSchedulerPolicy }}
-            - --device-config-file=/device-config.yaml
+            - --device-config-file=/device-config.yaml # 配置我呢见
             {{- if .Values.devices.ascend.enabled }}
             - --enable-ascend=true
             {{- end }}

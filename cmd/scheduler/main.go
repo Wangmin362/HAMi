@@ -76,6 +76,7 @@ func start() {
 	// start monitor metrics
 	// 获取当前集群中各个节点的资源信息
 	go sher.RegisterFromNodeAnnotations()
+	// 向外暴露指标接口
 	go initMetrics(config.MetricsBindAddress)
 
 	// start http server

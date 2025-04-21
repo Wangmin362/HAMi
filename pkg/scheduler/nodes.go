@@ -66,7 +66,7 @@ func (m *nodeManager) rmNodeDevice(nodeID string, nodeInfo *util.NodeInfo, devic
 	_, ok := m.nodes[nodeID]
 	if ok {
 		if len(m.nodes[nodeID].Devices) == 0 {
-			delete(m.nodes, nodeID)
+			delete(m.nodes, nodeID) // 删除缓存的节点信息
 			return
 		}
 		klog.V(5).Infoln("before rm:", m.nodes[nodeID].Devices, "needs remove", nodeInfo.Devices)

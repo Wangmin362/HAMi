@@ -45,9 +45,16 @@ const (
 )
 
 var (
+	// InRequestDevices 表示当前Pod正在申请的设备类型，key为设备类型，value为Pod的注解
+	// 譬如，目前支持的key有：nvidia, cambricon, hygon, metax, mthreads, iluvatar
+	// 对应的value为：hami.io/vgpu-devices-to-allocate, 表示hami-scheduler想要给这个Pod分配的设备使用的注解
 	InRequestDevices map[string]string
-	SupportDevices   map[string]string
-	HandshakeAnnos   map[string]string
+	// SupportDevices 表示当前分配设备类型，key为设备类型，value为pod分配设备使用的注解
+	// 譬如，目前支持的key有：nvidia, cambricon, hygon, metax, mthreads, iluvatar
+	// 对应的value为：hami.io/vgpu-devices-allocated  表示device-plugin分配给这个Pod的设备使用的注解
+	SupportDevices map[string]string
+	// HandshakeAnnos 握手信息, key为设备类型，value为对应注解的key
+	HandshakeAnnos map[string]string
 )
 
 func init() {
@@ -412,7 +419,11 @@ func InitKlogFlags() *flag.FlagSet {
 	return flagset
 }
 
-func CheckHealth(devType string, n *corev1.Node) (bool, bool) {
+// CheckHealth 检查节点是否健康，这里的devType为不同的设备类型
+// 1. hami目前注册的设备有：NVIDIA, MLU, DCU, Iluvatar, Mthreads, Metax，以及昇腾的芯片
+// 2. 主要还是为了获取当前节点的handshake注解信息，可以理解为心跳信息
+func CheckHealth(devType string, n *corev1.Node) (isHealth bool, needUpdate bool) {
+	// 譬如：hami.io/node-handshake: Deleted_2025.04.21 08:55:49
 	handshake := n.Annotations[HandshakeAnnos[devType]]
 	if strings.Contains(handshake, "Requesting") {
 		formertime, _ := time.Parse("2006.01.02 15:04:05", strings.Split(handshake, "_")[1])
@@ -424,6 +435,7 @@ func CheckHealth(devType string, n *corev1.Node) (bool, bool) {
 	}
 }
 
+// MarkAnnotationsToDelete 给节点打注解,类似 hami.io/node-handshake=Deleted_2025.04.21 08:55:49
 func MarkAnnotationsToDelete(devType string, nn string) error {
 	tmppat := make(map[string]string)
 	tmppat[devType] = "Deleted_" + time.Now().Format("2006.01.02 15:04:05")

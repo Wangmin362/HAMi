@@ -131,7 +131,9 @@ func (s *Scheduler) Start() {
 	s.kubeClient = kubeClient
 	// 监听node和pod的变化, 并且每隔一个小时强制更新一次
 	informerFactory := informers.NewSharedInformerFactoryWithOptions(s.kubeClient, time.Hour*1)
+	// 缓存所有的Pod资源信息
 	s.podLister = informerFactory.Core().V1().Pods().Lister()
+	// 缓存所有的Node资源信息
 	s.nodeLister = informerFactory.Core().V1().Nodes().Lister()
 
 	informer := informerFactory.Core().V1().Pods().Informer()
@@ -159,7 +161,7 @@ func (s *Scheduler) RegisterFromNodeAnnotations() {
 	ticker := time.NewTicker(time.Second * 15)
 	for {
 		select {
-		case <-s.nodeNotify:
+		case <-s.nodeNotify: // 当通知来的时候，表示节点发生了变更
 		case <-ticker.C:
 		case <-s.stopCh:
 			return
@@ -177,19 +179,22 @@ func (s *Scheduler) RegisterFromNodeAnnotations() {
 		var nodeNames []string
 		for _, val := range rawNodes {
 			nodeNames = append(nodeNames, val.Name)
-			for devhandsk, devInstance := range device.GetDevices() {
+			for devhandsk, devInstance := range device.GetDevices() { // 遍历hami当前支持的所有设备
 				health, needUpdate := devInstance.CheckHealth(devhandsk, val)
 				klog.V(5).InfoS("device check health", "node", val.Name, "deviceVendor", devhandsk, "health", health, "needUpdate", needUpdate)
 				if !health {
+					// 给节点打注解,类似 hami.io/node-handshake=Deleted_2025.04.21 08:55:49
 					err := devInstance.NodeCleanUp(val.Name)
 					// If the device is not healthy, the device is removed from the node.
 					// At the same time, this node needs to be removed from the cache.
 					if err != nil {
 						klog.Errorln("node cleanup failed", err.Error())
 					}
+					// 获取当前节点信息
 					info, ok := s.nodes[val.Name]
 					if ok {
 						klog.Infof("node %v device %s:%v leave, %v remaining devices:%v", val.Name, devhandsk, info, err, s.nodes[val.Name].Devices)
+						// 删除设备信息  TODO
 						s.rmNodeDevice(val.Name, info, devhandsk)
 						continue
 					}
@@ -207,6 +212,7 @@ func (s *Scheduler) RegisterFromNodeAnnotations() {
 						klog.Errorln("get node failed", err.Error())
 						continue
 					}
+					// 给节点打上注解，类似 hami.io/node-handshake=Requesting_2025.04.21 08:55:49
 					util.PatchNodeAnnotations(n, tmppat)
 				}
 
@@ -251,6 +257,7 @@ func (s *Scheduler) RegisterFromNodeAnnotations() {
 				}
 			}
 		}
+		// 更新当前节点资源以及使用情况
 		_, _, err = s.getNodesUsage(&nodeNames, nil)
 		if err != nil {
 			klog.Errorln("get node usage failed", err.Error())
@@ -490,6 +497,7 @@ func (s *Scheduler) Filter(args extenderv1.ExtenderArgs) (*extenderv1.ExtenderFi
 	}
 	if len((*nodeScores).NodeList) == 0 {
 		klog.V(4).Infof("All node scores do not meet for pod %v", args.Pod.Name)
+		// TODO 这里需要给出一个相对详细的错误，告诉用户哪些节点是因为资源不足，哪些是因为污点，哪些是因为亲和性等原因
 		s.recordScheduleFilterResultEvent(args.Pod, EventReasonFilteringFailed, []string{}, fmt.Errorf("no available node, all node scores do not meet"))
 		return &extenderv1.ExtenderFilterResult{
 			FailedNodes: failedNodes,
