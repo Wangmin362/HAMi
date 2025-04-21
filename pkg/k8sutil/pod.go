@@ -24,16 +24,19 @@ import (
 	"k8s.io/klog/v2"
 )
 
-// Resourcereqs 解析出当前Pod每个容器申请的资源数量
+// Resourcereqs 解析出当前Pod每个容器申请的计算资源的大小：主要包括：数量，内存，算力
 func Resourcereqs(pod *corev1.Pod) (counts util.PodDeviceRequests) {
 	counts = make(util.PodDeviceRequests, len(pod.Spec.Containers))
 	//Count Nvidia GPU
 	for i := 0; i < len(pod.Spec.Containers); i++ {
+		// 获取hami当前所有支持的设备
 		devices := device.GetDevices()
 		counts[i] = make(util.ContainerDeviceRequests)
-		for idx, val := range devices {
+		for idx, val := range devices { // 遍历hami支持的每一种类型的设备，看看当前容器申请了几个这样的设备
+			// 获取当前容器对于当前类型的计算资源申请的大小，主要包括：数量，内存，算力
 			request := val.GenerateResourceRequests(&pod.Spec.Containers[i])
-			if request.Nums > 0 {
+			if request.Nums > 0 { // 数量大于零，说明当前容器申请了这个类型的设备
+				// TODO 这里为什么不直接使用上面计算出来的值？
 				counts[i][idx] = val.GenerateResourceRequests(&pod.Spec.Containers[i])
 			}
 		}

@@ -35,9 +35,10 @@ func (s SchedulerPolicyName) String() string {
 
 const (
 	// NodeSchedulerPolicyAnnotationKey is user set Pod annotation to change this default node policy.
-	// TODO 有啥作用？
+	// 用于设置节点的调度策略，目前支持binpack, spread两种策略，默认为binpack，即默认让集群中的碎片资源最小，以预留足够的资源部署大任务
 	NodeSchedulerPolicyAnnotationKey = "hami.io/node-scheduler-policy"
 	// GPUSchedulerPolicyAnnotationKey is user set Pod annotation to change this default GPU policy.
+	// 用于设置GPU的调度策略，目前支持binpack, spread两种策略，默认为spread策略，这样可以尽可能充分的使用GPU资源
 	GPUSchedulerPolicyAnnotationKey = "hami.io/gpu-scheduler-policy"
 )
 

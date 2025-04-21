@@ -265,6 +265,7 @@ func (s *Scheduler) InspectAllNodesUsage() *map[string]*NodeUsage {
 
 // returns all nodes and its device memory usage, and we filter it with nodeSelector, taints, nodeAffinity
 // unschedulerable and nodeName.
+// 获取每个节点总的设备资源情况，并且通过遍历每个节点的所有Pod来计算对应节点已经使用的设备资源情况
 func (s *Scheduler) getNodesUsage(nodes *[]string, task *corev1.Pod) (*map[string]*NodeUsage, map[string]string, error) {
 	overallnodeMap := make(map[string]*NodeUsage)
 	cachenodeMap := make(map[string]*NodeUsage)
@@ -276,12 +277,12 @@ func (s *Scheduler) getNodesUsage(nodes *[]string, task *corev1.Pod) (*map[strin
 		return &overallnodeMap, failedNodes, err
 	}
 
-	// 获取当前总的资源情况
+	// 获取当前K8S集群总的计算资源情况
 	for _, node := range allNodes {
 		nodeInfo := &NodeUsage{}
 		userGPUPolicy := config.GPUSchedulerPolicy
 		if task != nil && task.Annotations != nil {
-			// 用户可以字节在Pod的annotations中设置node-scheduler-policy和gpu-scheduler-policy来改变默认的调度策略
+			// 用户可以自己在Pod的annotations中设置node-scheduler-policy和gpu-scheduler-policy来改变默认的调度策略
 			if value, ok := task.Annotations[policy.GPUSchedulerPolicyAnnotationKey]; ok {
 				userGPUPolicy = value
 			}
@@ -293,7 +294,7 @@ func (s *Scheduler) getNodesUsage(nodes *[]string, task *corev1.Pod) (*map[strin
 		}
 		for _, d := range node.Devices {
 			nodeInfo.Devices.DeviceLists = append(nodeInfo.Devices.DeviceLists, &policy.DeviceListsScore{
-				Score: 0,
+				Score: 0, // 默认都是零分
 				Device: &util.DeviceUsage{
 					ID:        d.ID,
 					Index:     d.Index,
@@ -309,6 +310,7 @@ func (s *Scheduler) getNodesUsage(nodes *[]string, task *corev1.Pod) (*map[strin
 				},
 			})
 		}
+		// 汇总当前K8S集群每个节点设备的情况
 		overallnodeMap[node.ID] = nodeInfo
 	}
 
@@ -316,9 +318,10 @@ func (s *Scheduler) getNodesUsage(nodes *[]string, task *corev1.Pod) (*map[strin
 	podsInfo := s.ListPodsInfo()
 	for _, p := range podsInfo {
 		node, ok := overallnodeMap[p.NodeID]
-		if !ok {
+		if !ok { // 说明当前Pod不在本节点当中， 直接忽略当前Pod，因为当前需要统计的是一个节点上所有Pod已经使用的资源，所以一个Pod肯定需要属于一个Node
 			continue
 		}
+		// 统计每个每个设备的使用情况
 		for _, podsingleds := range p.Devices {
 			for _, ctrdevs := range podsingleds {
 				for _, udevice := range ctrdevs {
@@ -335,7 +338,7 @@ func (s *Scheduler) getNodesUsage(nodes *[]string, task *corev1.Pod) (*map[strin
 		klog.V(5).Infof("usage: pod %v assigned %v %v", p.Name, p.NodeID, p.Devices)
 	}
 	s.overviewstatus = overallnodeMap
-	for _, nodeID := range *nodes {
+	for _, nodeID := range *nodes { // 遍历指定的节点，也就是当前Pod的候选节点
 		node, err := s.GetNode(nodeID)
 		if err != nil {
 			// The identified node does not have a gpu device, so the log here has no practical meaning,increase log priority.
@@ -451,15 +454,15 @@ ReleaseNodeLocks:
 // Filter 给当前指定的Pod过滤出合适的Node
 func (s *Scheduler) Filter(args extenderv1.ExtenderArgs) (*extenderv1.ExtenderFilterResult, error) {
 	klog.InfoS("begin schedule filter", "pod", args.Pod.Name, "uuid", args.Pod.UID, "namespaces", args.Pod.Namespace)
-	// 解析出当前Pod每个容器申请的资源数量
+	// 解析出当前Pod每个容器申请的计算资源的大小：主要包括：数量，内存，算力
 	nums := k8sutil.Resourcereqs(args.Pod)
-	total := 0
+	total := 0 // 计算出当前Pod对于hami管理的任意计算资源申请的总大小
 	for _, n := range nums {
 		for _, k := range n {
 			total += int(k.Nums)
 		}
 	}
-	if total == 0 {
+	if total == 0 { // 如果当前Pod没有申请任何hami管理的计算资源，直接把所有的节点都返回，让K8S调度器选择一个合适的节点
 		klog.V(1).Infof("pod %v not find resource", args.Pod.Name)
 		s.recordScheduleFilterResultEvent(args.Pod, EventReasonFilteringFailed, []string{}, fmt.Errorf("does not request any resource"))
 		return &extenderv1.ExtenderFilterResult{
@@ -470,6 +473,7 @@ func (s *Scheduler) Filter(args extenderv1.ExtenderArgs) (*extenderv1.ExtenderFi
 	}
 	annos := args.Pod.Annotations
 	s.delPod(args.Pod)
+	// 获取每个节点总的设备资源情况，并且通过遍历每个节点的所有Pod来计算对应节点已经使用的设备资源情况
 	nodeUsage, failedNodes, err := s.getNodesUsage(args.NodeNames, args.Pod)
 	if err != nil {
 		s.recordScheduleFilterResultEvent(args.Pod, EventReasonFilteringFailed, []string{}, err)

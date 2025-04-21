@@ -251,16 +251,18 @@ func (dev *CambriconDevices) CheckUUID(annos map[string]string, d util.DeviceUsa
 	return true
 }
 
+// GenerateResourceRequests 获取当前容器对于寒武纪MLU的资源请求，主要包括（MLU数量，内存大小，算力大小）
 func (dev *CambriconDevices) GenerateResourceRequests(ctr *corev1.Container) util.ContainerDeviceRequest {
 	klog.Info("Counting mlu devices")
-	mluResourceCount := corev1.ResourceName(MLUResourceCount)
-	mluResourceMem := corev1.ResourceName(MLUResourceMemory)
-	mluResourceCores := corev1.ResourceName(MLUResourceCores)
+	mluResourceCount := corev1.ResourceName(MLUResourceCount) // cambricon.com/mlu, 用于申明使用寒武纪MLU的数量
+	mluResourceMem := corev1.ResourceName(MLUResourceMemory)  // cambricon.com/mlu.smlu.vmemory 用于声明使用寒武纪MLU的内存
+	mluResourceCores := corev1.ResourceName(MLUResourceCores) // cambricon.com/mlu.smlu.vcore 用于声明使用寒武纪MLU的算力
 	for idx, val := range ctr.Resources.Limits {
 		klog.Infoln("idx=", idx, "val=", val, ctr.Resources.Limits[mluResourceMem])
 	}
+	// 申请MLU数量
 	v, ok := ctr.Resources.Limits[mluResourceCount]
-	if !ok {
+	if !ok { // 没有限制就从请求中获取
 		v, ok = ctr.Resources.Requests[mluResourceCount]
 	}
 	if ok {
@@ -276,6 +278,7 @@ func (dev *CambriconDevices) GenerateResourceRequests(ctr *corev1.Container) uti
 				memnums, ok := mem.AsInt64()
 				klog.Infoln("mluResourceMem", mem, memnums)
 				if ok {
+					// TODO 这里为什么需要放大256倍？
 					memnum = int(memnums) * 256
 				}
 			}

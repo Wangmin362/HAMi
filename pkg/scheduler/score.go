@@ -189,9 +189,14 @@ func fitInDevices(node *NodeUsage, requests util.ContainerDeviceRequests, annos 
 	return true, 0
 }
 
-func (s *Scheduler) calcScore(nodes *map[string]*NodeUsage, nums util.PodDeviceRequests, annos map[string]string, task *corev1.Pod) (*policy.NodeScoreList, error) {
+func (s *Scheduler) calcScore(
+	nodes *map[string]*NodeUsage, // 所有候选节点的总的资源情况以及设备已经使用的情况
+	nums util.PodDeviceRequests, // 当前要调度的Pod申请的设备情况，一个Pod可能存在多个容器申请资源，每个容器可能申请多种不同的资源
+	annos map[string]string, // Pod的注解信息
+	task *corev1.Pod, // 当前要调度的Pod
+) (*policy.NodeScoreList, error) {
 	userNodePolicy := config.NodeSchedulerPolicy
-	if annos != nil {
+	if annos != nil { // 用户可以给Pod打上hami.io/node-scheduler-policy注解自定义当前Pod的节点选择策略
 		if value, ok := annos[policy.NodeSchedulerPolicyAnnotationKey]; ok {
 			userNodePolicy = value
 		}
@@ -203,20 +208,23 @@ func (s *Scheduler) calcScore(nodes *map[string]*NodeUsage, nums util.PodDeviceR
 
 	//func calcScore(nodes *map[string]*NodeUsage, errMap *map[string]string, nums util.PodDeviceRequests, annos map[string]string, task *corev1.Pod) (*NodeScoreList, error) {
 	//	res := make(NodeScoreList, 0, len(*nodes))
+	// 遍历所有的候选节点，按照当前节点资源剩余情况，给各个节点打分，同时给节点内部的设备打分
 	for nodeID, node := range *nodes {
-		viewStatus(*node)
+		viewStatus(*node) // 打印当前节点的资源使用情况
 		score := policy.NodeScore{NodeID: nodeID, Node: node.Node, Devices: make(util.PodDevices), Score: 0}
+		// 1. 当前节点默认分数，其实就是通过当前节点设备使用情况处于当前节点总的使用情况，得到一个分数，主要是设备使用率，算力使用率，内存使用率相加之和
+		// 2. 打分规则：节点使用的资源越多，剩余的资源越少，分数越高
 		score.ComputeDefaultScore(node.Devices)
 
 		//This loop is for different container request
 		ctrfit := false
-		for ctrid, n := range nums {
-			sums := 0
+		for ctrid, n := range nums { // 遍历Pod每个容器申请的设备
+			sums := 0 // 计算当前容器申请的资源数量
 			for _, k := range n {
 				sums += int(k.Nums)
 			}
 
-			if sums == 0 {
+			if sums == 0 { // TODO 什么情况下，这里是0？
 				for idx := range score.Devices {
 					for len(score.Devices[idx]) <= ctrid {
 						score.Devices[idx] = append(score.Devices[idx], util.ContainerDevices{})

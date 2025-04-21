@@ -30,7 +30,7 @@ type DeviceListsScore struct {
 
 type DeviceUsageList struct {
 	DeviceLists []*DeviceListsScore
-	Policy      string
+	Policy      string // 设备调度策略，默认为spread， 还支持binpack模式
 }
 
 func (l DeviceUsageList) Len() int {

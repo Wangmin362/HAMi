@@ -65,16 +65,18 @@ func (ns *NodeScore) OverrideScore(devices DeviceUsageList, policy string) {
 	}
 }
 
+// ComputeDefaultScore 当前节点默认分数，其实就是通过当前节点设备使用情况处于当前节点总的使用情况，得到一个分数，主要是设备使用率，算力使用率，内存使用率相加之和
 func (ns *NodeScore) ComputeDefaultScore(devices DeviceUsageList) {
 	used, usedCore, usedMem := int32(0), int32(0), int32(0)
 	for _, device := range devices.DeviceLists {
-		used += device.Device.Used
-		usedCore += device.Device.Usedcores
-		usedMem += device.Device.Usedmem
+		used += device.Device.Used          // 当前节点所有设备的使用数量
+		usedCore += device.Device.Usedcores // 当前节点所有设备算力的使用大小
+		usedMem += device.Device.Usedmem    // 当前节点所有设备内存的使用大小
 	}
 	klog.V(2).Infof("node %s used %d, usedCore %d, usedMem %d,", ns.NodeID, used, usedCore, usedMem)
 
 	total, totalCore, totalMem := int32(0), int32(0), int32(0)
+	// 当前节点所有设备的总数量，总算力，总内存情况
 	for _, deviceLists := range devices.DeviceLists {
 		total += deviceLists.Device.Count
 		totalCore += deviceLists.Device.Totalcore
@@ -83,6 +85,7 @@ func (ns *NodeScore) ComputeDefaultScore(devices DeviceUsageList) {
 	useScore := float32(used) / float32(total)
 	coreScore := float32(usedCore) / float32(totalCore)
 	memScore := float32(usedMem) / float32(totalMem)
+	// 当前节点使用的资源越多，剩余的资源越少，分数越高
 	ns.Score = float32(Weight) * (useScore + coreScore + memScore)
 	klog.V(2).Infof("node %s computer default score is %f", ns.NodeID, ns.Score)
 }
