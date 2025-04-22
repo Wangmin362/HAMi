@@ -25,7 +25,14 @@ dockerwithlib:
 build-image: clean build
 	docker build -t hami-wm:v2.4.1 .
 	docker save -o hami-wm_v2.4.1.tar hami-wm:v2.4.1
+	ctr -n k8s.io image rm docker.io/library/hami-wm:v2.4.1
 	ctr -n k8s.io image import hami-wm_v2.4.1.tar
+	rm -f hami-*
+	if helm list -q | grep -q "hami"; then \
+        helm uninstall hami; \
+    fi
+	helm install hami ./charts/hami
+	kubectl get pods
 
 tidy:
 	$(GO) mod tidy
