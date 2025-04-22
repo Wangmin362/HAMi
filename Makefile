@@ -22,6 +22,11 @@ dockerwithlib:
 	--build-arg GOPROXY=https://goproxy.cn,direct \
 	. -f=docker/Dockerfile.withlib -t ${IMG_TAG}
 
+build-image: clean build
+	docker build -t hami-wm:v2.4.1 .
+	docker save -o hami-wm_v2.4.1.tar hami-wm:v2.4.1
+	ctr -n k8s.io image import hami-wm_v2.4.1.tar
+
 tidy:
 	$(GO) mod tidy
 

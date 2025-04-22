@@ -67,7 +67,7 @@ scheduler:
       - --policy-config-file=/config/config.json
       - -v=4
   extender:
-    image: "projecthami/hami"
+    image: "hami-wm"
     imagePullPolicy: IfNotPresent
     extraArgs:
       - --debug
@@ -107,8 +107,8 @@ scheduler:
     annotations: {}
 
 devicePlugin:
-  image: "projecthami/hami"
-  monitorimage: "projecthami/hami"
+  image: "hami-wm"
+  monitorimage: "hami-wm"
   monitorctrPath: /usr/local/vgpu/containers
   imagePullPolicy: IfNotPresent
   runtimeClassName: ""
