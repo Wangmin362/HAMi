@@ -22,9 +22,11 @@ import (
 	"k8s.io/klog/v2"
 )
 
+// DeviceListsScore 抽象一个设备的详细信息，譬如
 type DeviceListsScore struct {
 	Device *util.DeviceUsage
 	// Score recode every device user/allocate score
+	// 设备的分数计算公式为：使用卡数/总卡数 + 使用内存/总内存 + 使用算力/总算力 的和，其中的卡数指的是设备的虚拟卡数
 	Score float32
 }
 
@@ -55,6 +57,8 @@ func (l DeviceUsageList) Less(i, j int) bool {
 	return l.DeviceLists[i].Device.Numa < l.DeviceLists[j].Device.Numa
 }
 
+// ComputeScore 计算每个卡的分数 = 使用卡数/总卡数 + 使用内存/总内存 + 使用算力/总算力 的和，这里的卡数指的是设备的虚拟卡数，也有可能是一个GPU
+// 支持同时部署的任务数量
 func (ds *DeviceListsScore) ComputeScore(requests util.ContainerDeviceRequests) {
 	request, core, mem := int32(0), int32(0), int32(0)
 	// Here we are required to use the same type device

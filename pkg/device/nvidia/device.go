@@ -321,7 +321,7 @@ func checkGPUtype(annos map[string]string, cardtype string) bool {
 }
 
 func assertNuma(annos map[string]string) bool {
-	numabind, ok := annos[NumaBind]
+	numabind, ok := annos[NumaBind] // nvidia.com/numa-bind
 	if ok {
 		enforce, err := strconv.ParseBool(numabind)
 		if err == nil && enforce {
@@ -333,7 +333,7 @@ func assertNuma(annos map[string]string) bool {
 
 func (dev *NvidiaGPUDevices) CheckType(annos map[string]string, d util.DeviceUsage, n util.ContainerDeviceRequest) (bool, bool, bool) {
 	Typecheck := checkGPUtype(annos, d.Type)
-	mode, ok := annos[AllocateMode]
+	mode, ok := annos[AllocateMode] // nvidia.com/vgpu-mode
 	if ok && !strings.Contains(mode, d.Mode) {
 		Typecheck = false
 	}

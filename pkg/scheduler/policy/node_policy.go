@@ -25,10 +25,13 @@ import (
 )
 
 type NodeScore struct {
-	NodeID  string
-	Node    *corev1.Node
+	NodeID string
+	Node   *corev1.Node
+	// TODO 没有太理解这个数据结构
 	Devices util.PodDevices
 	// Score recode every node all device user/allocate score
+	// 1. 节点的分数主要还是节点的  可用卡数/总卡数 + 可用内存/总内存 + 可用算力/总算力 的和
+	// 2. 如果每个卡的分数之和大于0，则当前节点的分数就是每个卡的分数之和
 	Score float32
 }
 
@@ -53,9 +56,10 @@ func (l NodeScoreList) Less(i, j int) bool {
 	return l.NodeList[i].Score < l.NodeList[j].Score
 }
 
+// OverrideScore 统计当前节点每个卡的分数，如果每个卡的分数之和大于0，则当前节点的分数就是每个卡的分数之和
 func (ns *NodeScore) OverrideScore(devices DeviceUsageList, policy string) {
 	// current user having request resource
-	devscore := float32(0)
+	devscore := float32(0) // 统计当前节点每个卡的分数
 	for idx, val := range ns.Devices {
 		devscore += device.GetDevices()[idx].ScoreNode(ns.Node, val, policy)
 	}
@@ -65,6 +69,7 @@ func (ns *NodeScore) OverrideScore(devices DeviceUsageList, policy string) {
 	}
 }
 
+// ComputeDefaultScore 计算当前节点的分数 = 可用卡数/总卡数 + 可用内存/总内存 + 可用算力/总算力 的和
 func (ns *NodeScore) ComputeDefaultScore(devices DeviceUsageList) {
 	used, usedCore, usedMem := int32(0), int32(0), int32(0)
 	for _, device := range devices.DeviceLists {

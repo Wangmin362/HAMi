@@ -461,6 +461,7 @@ func (s *Scheduler) Filter(args extenderv1.ExtenderArgs) (*extenderv1.ExtenderFi
 	}
 	annos := args.Pod.Annotations
 	s.delPod(args.Pod)
+	// 计算每个Node计算资源的使用率
 	nodeUsage, failedNodes, err := s.getNodesUsage(args.NodeNames, args.Pod)
 	if err != nil {
 		s.recordScheduleFilterResultEvent(args.Pod, EventReasonFilteringFailed, []string{}, err)
@@ -470,6 +471,8 @@ func (s *Scheduler) Filter(args extenderv1.ExtenderArgs) (*extenderv1.ExtenderFi
 		klog.V(5).InfoS("Nodes failed during usage retrieval",
 			"nodes", failedNodes)
 	}
+	// 1. 计算每个节点的分数，其中计算分数的时候会按照剩余资源的多少进行打分，剩余资源越少，分数越高。
+	// 2. node和卡的打分策略都支持binpack以及spread策略，默认节点按照binpack策略进行打分，卡按照spread策略进行打分。
 	nodeScores, err := s.calcScore(nodeUsage, nums, annos, args.Pod, failedNodes)
 	if err != nil {
 		err := fmt.Errorf("calcScore failed %v for pod %v", err, args.Pod.Name)

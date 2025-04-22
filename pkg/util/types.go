@@ -105,20 +105,20 @@ type AllowedMigGeometries struct {
 }
 
 type DeviceUsage struct {
-	ID          string
-	Index       uint
-	Used        int32
-	Count       int32
-	Usedmem     int32
-	Totalmem    int32
-	Totalcore   int32
-	Usedcores   int32
-	Mode        string
+	ID          string // 设备UUID
+	Index       uint   // 设备的索引
+	Used        int32  // 消耗的数量，如果一个卡可以部署10个任务，那么没来一个任务就会消耗一个，直到消耗完10个
+	Count       int32  // 其实就是replica或者device-split-count数量，即一个GPU可以部署多少个任务
+	Usedmem     int32  // 使用内存，目前有两种形式指定使用方式：1. 直接指定使用内存，2. 指定使用内存的百分比
+	Totalmem    int32  // 总内存
+	Totalcore   int32  // 总算力
+	Usedcores   int32  // 使用算力
+	Mode        string // 设备模式：mig
 	MigTemplate []Geometry
 	MigUsage    MigInUse
-	Numa        int
-	Type        string
-	Health      bool
+	Numa        int    // NUMA节点
+	Type        string // 当前设备的类型
+	Health      bool   // 是否健康，一般是通过底层驱动上报上来的
 }
 
 type DeviceInfo struct {

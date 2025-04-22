@@ -43,7 +43,7 @@ func checkType(annos map[string]string, d util.DeviceUsage, n util.ContainerDevi
 	if !strings.Contains(d.Type, n.Type) {
 		return false, false
 	}
-	for _, val := range device.GetDevices() {
+	for _, val := range device.GetDevices() { // 遍历HAMi支持的所有设备类型
 		found, pass, numaAssert := val.CheckType(annos, d, n)
 		if found {
 			return pass, numaAssert
@@ -64,7 +64,13 @@ func checkUUID(annos map[string]string, d util.DeviceUsage, n util.ContainerDevi
 	return result
 }
 
-func fitInCertainDevice(node *NodeUsage, request util.ContainerDeviceRequest, annos map[string]string, pod *corev1.Pod, allocated *util.PodDevices) (bool, map[string]util.ContainerDevices) {
+func fitInCertainDevice(
+	node *NodeUsage, // 当前节点的设备使用信息
+	request util.ContainerDeviceRequest, // 容器请求的某一种资源
+	annos map[string]string, // 当前正在调度容器的注解
+	pod *corev1.Pod,
+	allocated *util.PodDevices,
+) (bool, map[string]util.ContainerDevices) {
 	k := request
 	originReq := k.Nums
 	prevnuma := -1
@@ -90,6 +96,7 @@ func fitInCertainDevice(node *NodeUsage, request util.ContainerDeviceRequest, an
 		}
 
 		memreq := int32(0)
+		// 说明当前GPU上运行的任务数量已经达到上限
 		if node.Devices.DeviceLists[i].Device.Count <= node.Devices.DeviceLists[i].Device.Used {
 			continue
 		}
@@ -129,6 +136,7 @@ func fitInCertainDevice(node *NodeUsage, request util.ContainerDeviceRequest, an
 		if k.Nums > 0 {
 			klog.InfoS("first fitted", "pod", klog.KObj(pod), "device", node.Devices.DeviceLists[i].Device.ID)
 			k.Nums--
+			// 之前的检查全部通过，说明当前设备可以满足容器的需求
 			tmpDevs[k.Type] = append(tmpDevs[k.Type], util.ContainerDevice{
 				Idx:       int(node.Devices.DeviceLists[i].Device.Index),
 				UUID:      node.Devices.DeviceLists[i].Device.ID,
@@ -141,6 +149,7 @@ func fitInCertainDevice(node *NodeUsage, request util.ContainerDeviceRequest, an
 			klog.InfoS("device allocate success", "pod", klog.KObj(pod), "allocate device", tmpDevs)
 			return true, tmpDevs
 		}
+		// 如果是GPU，GPU在MIG模式下可以划分为多个实例。因此GPU分配两个一个MIG实例，也许剩下的MIG实例还可以给容器分配
 		if node.Devices.DeviceLists[i].Device.Mode == "mig" {
 			i++
 		}
@@ -148,7 +157,14 @@ func fitInCertainDevice(node *NodeUsage, request util.ContainerDeviceRequest, an
 	return false, tmpDevs
 }
 
-func fitInDevices(node *NodeUsage, requests util.ContainerDeviceRequests, annos map[string]string, pod *corev1.Pod, devinput *util.PodDevices) (bool, float32) {
+// 当前节点是否能够部署单个容器，原理就是：如果节点资源能够满足容器需要的每个资源，那么就可以部署这个容器
+func fitInDevices(
+	node *NodeUsage, // 当前节点设备使用情况
+	requests util.ContainerDeviceRequests, // 当前需要部署的容器，显然每成功部署一个容器，就需要消耗这个节点的资源
+	annos map[string]string, // 当前要调度的Pod的注解
+	pod *corev1.Pod, // 当前要调度的Pod
+	devinput *util.PodDevices, // TODO 如何理解这个结构？
+) (bool, float32) {
 	//devmap := make(map[string]util.ContainerDevices)
 	devs := util.ContainerDevices{}
 	total, totalCore, totalMem := int32(0), int32(0), int32(0)
@@ -156,19 +172,22 @@ func fitInDevices(node *NodeUsage, requests util.ContainerDeviceRequests, annos 
 	sums := 0
 	// computer all device score for one node
 	for index := range node.Devices.DeviceLists {
+		// 计算每个卡的分数 = 使用卡数/总卡数 + 使用内存/总内存 + 使用算力/总算力 的和，这里的卡数指的是设备的虚拟卡数，也有可能是一个GPU
+		// 支持同时部署的任务数量
 		node.Devices.DeviceLists[index].ComputeScore(requests)
 	}
 	//This loop is for requests for different devices
-	for _, k := range requests {
+	for _, k := range requests { // 遍历容器申请的每一种资源
 		sums += int(k.Nums)
-		if int(k.Nums) > len(node.Devices.DeviceLists) {
+		if int(k.Nums) > len(node.Devices.DeviceLists) { // 如果当前容器申请的设备数量已经大于节点上的设备数量，那么肯定无法部署这个容器
 			klog.InfoS("request devices nums cannot exceed the total number of devices on the node.", "pod", klog.KObj(pod), "request devices nums", k.Nums, "node device nums", len(node.Devices.DeviceLists))
 			return false, 0
 		}
 		sort.Sort(node.Devices)
+		// 针对容器申请的每一种资源，遍历节点上的每一个设备，看看当前设备是否能够满足容器的要求，如果满足，那么就需要消耗这个设备的资源
 		fit, tmpDevs := fitInCertainDevice(node, k, annos, pod, devinput)
 		if fit {
-			for idx, val := range tmpDevs[k.Type] {
+			for idx, val := range tmpDevs[k.Type] { // 遍历给当前容器分配的设备，虽然只有一种设备，但是容器可能一次性申请了多个
 				for nidx, v := range node.Devices.DeviceLists {
 					//bc node.Devices has been sorted, so we should find out the correct device
 					if v.Device.ID != val.UUID {
@@ -177,6 +196,7 @@ func fitInDevices(node *NodeUsage, requests util.ContainerDeviceRequests, annos 
 					total += v.Device.Count
 					totalCore += v.Device.Totalcore
 					totalMem += v.Device.Totalmem
+					// 当前节点可以部署这个容器，因此如果部署了这个容器，就需要减去对应消耗的资源
 					free += v.Device.Count - v.Device.Used
 					freeCore += v.Device.Totalcore - v.Device.Usedcores
 					freeMem += v.Device.Totalmem - v.Device.Usedmem
@@ -200,6 +220,7 @@ func fitInDevices(node *NodeUsage, requests util.ContainerDeviceRequests, annos 
 func (s *Scheduler) calcScore(nodes *map[string]*NodeUsage, nums util.PodDeviceRequests, annos map[string]string, task *corev1.Pod, failedNodes map[string]string) (*policy.NodeScoreList, error) {
 	userNodePolicy := config.NodeSchedulerPolicy
 	if annos != nil {
+		// 用户可以在Pod注解上指定节点调度策略，默认为binpack策略，即优先把任务调度到剩余资源最少的节点上，尽量减少集群资源碎片
 		if value, ok := annos[policy.NodeSchedulerPolicyAnnotationKey]; ok {
 			userNodePolicy = value
 		}
@@ -214,22 +235,24 @@ func (s *Scheduler) calcScore(nodes *map[string]*NodeUsage, nums util.PodDeviceR
 	errCh := make(chan error, len(*nodes))
 	for nodeID, node := range *nodes {
 		wg.Add(1)
+		// 每个节点的打分是独立的，互不影响。因为每个节点的分数只和当前节点总的资源以及使用的资源有关，因此可以分开统计。
 		go func(nodeID string, node *NodeUsage) {
 			defer wg.Done()
 
 			viewStatus(*node)
 			score := policy.NodeScore{NodeID: nodeID, Node: node.Node, Devices: make(util.PodDevices), Score: 0}
+			// 计算当前节点的分数 = 可用卡数/总卡数 + 可用内存/总内存 + 可用算力/总算力 的和
 			score.ComputeDefaultScore(node.Devices)
 
 			//This loop is for different container request
 			ctrfit := false
 			for ctrid, n := range nums {
-				sums := 0
+				sums := 0 // 当前容器请求的计算资源总数量
 				for _, k := range n {
 					sums += int(k.Nums)
 				}
 
-				if sums == 0 {
+				if sums == 0 { // what situation will happen?
 					for idx := range score.Devices {
 						for len(score.Devices[idx]) <= ctrid {
 							score.Devices[idx] = append(score.Devices[idx], util.ContainerDevices{})
@@ -238,9 +261,11 @@ func (s *Scheduler) calcScore(nodes *map[string]*NodeUsage, nums util.PodDeviceR
 					}
 				}
 				klog.V(5).InfoS("fitInDevices", "pod", klog.KObj(task), "node", nodeID)
+				// 1. 判断当前节点是否能够满足当前容器的需求，如果当前节点满足Pod所有容器的需求，那么当前节点就是一个合适的节点，一次可以部署这个Pod
 				fit, _ := fitInDevices(node, n, annos, task, &score.Devices)
 				ctrfit = fit
-				if !fit {
+				if !fit { // 只要Pod的任何一个容器不能满足需求，那么当前节点就不是一个合适的节点，不能部署这个Pod
+					// 这里没有指定日志级别，因此是0
 					klog.InfoS("calcScore:node not fit pod", "pod", klog.KObj(task), "node", nodeID)
 					failedNodes[nodeID] = "node not fit pod"
 					break
@@ -249,8 +274,10 @@ func (s *Scheduler) calcScore(nodes *map[string]*NodeUsage, nums util.PodDeviceR
 
 			if ctrfit {
 				mutex.Lock()
+				// 说明当前节点满足当前Pod所有容器的需求
 				res.NodeList = append(res.NodeList, &score)
 				mutex.Unlock()
+				// 统计当前节点每个卡的分数，如果每个卡的分数之和大于0，则当前节点的分数就是每个卡的分数之和
 				score.OverrideScore(node.Devices, userNodePolicy)
 			}
 		}(nodeID, node)

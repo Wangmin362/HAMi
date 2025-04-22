@@ -143,10 +143,14 @@ func GetAllocatePodByNode(ctx context.Context, nodeName string) (*corev1.Pod, er
 	return nil, nil
 }
 
+// DecodeNodeDevices 通过Node注解反序列化节点的设备信息
 func DecodeNodeDevices(str string) ([]*DeviceInfo, error) {
 	if !strings.Contains(str, OneContainerMultiDeviceSplitSymbol) {
 		return []*DeviceInfo{}, errors.New("node annotations not decode successfully")
 	}
+	// GPU-00552014-5c87-89ac-b1a6-7b53aa24b0ec,10,32768,100,NVIDIA-Tesla
+	//        V100-PCIE-32GB,0,true,0,hami-core:GPU-0fc3eda5-e98b-a25b-5b0d-cf5c855d1448,10,32768,100,NVIDIA-Tesla
+	//        V100-PCIE-32GB,0,true,1,hami-core
 	tmp := strings.Split(str, OneContainerMultiDeviceSplitSymbol)
 	var retval []*DeviceInfo
 	for _, val := range tmp {
