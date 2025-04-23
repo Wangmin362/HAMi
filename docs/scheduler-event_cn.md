@@ -1,12 +1,17 @@
 # Scheduler event
 ## 现状
-
-- running pod 节点 卡的类型
-
 ### event事件描述不清晰，问题定位时无法知道具体的节点失败原因
 
-用户提交一个任务，通过hami-scheduler调度之后，Pod一直处于Pending状态，无法调度成功。 Pod事件仅仅显示了当前Pod没有找到满足的节点，没有具体显示
-某个节点是因为某种原因不合适，不方便排查问题。
+用户提交一个任务，通过hami-scheduler调度之后，Pod一直处于Pending状态，无法调度成功。 Pod事件仅仅显示了当前Pod没有找到满足的
+节点(no available node, all node scores do not meet)， 没有具体显示哪些类型的节点调度失败的数量，不方便用户概览全局信息。
+（用户的K8S集群可能存在3个英伟达节点，2个摩尔线程节点，2个寒武纪节点，2个昇腾节点，1个中科海光节点， 在Pod失败的时候，用户需要关心不同类型节点
+失败的数量，所以需要在event事件中显示出来）
+
+于此同时，如果Pod调度成功，处于running状态，但是用户发现这个Pod调度的节点可能并非是自己预期的节点，此时用户需要知道每个节点的调度情况，譬如调度
+失败的节点有几个（每种类型调度失败的节点有几个），调度成功的节点有几个（并且还想知道每个调度成功的节点的分数是多少，这样用户可以很方便的知道为什么
+当前Pod调度到这个节点上）
+
+下面是一个简单的用户样例，展示了用户提交的一个任务，以及Pod处于Pending状态的事件信息和hami-scheduler调度日志信息。
 
 ```yaml
 apiVersion: v1
@@ -27,50 +32,7 @@ spec:
 
 ```event
 $ kubectl describe pod gpu-pod
-Name:             gpu-pod
-Namespace:        default
-Priority:         0
-Service Account:  default
-Node:             <none>
-Labels:           <none>
-Annotations:      <none>
-Status:           Pending
-IP:               
-IPs:              <none>
-Containers:
-  ubuntu-container:
-    Image:      ubuntu:22.04
-    Port:       <none>
-    Host Port:  <none>
-    Command:
-      bash
-      -c
-      sleep 86400
-    Limits:
-      nvidia.com/gpu:       2
-      nvidia.com/gpucores:  30
-      nvidia.com/gpumem:    3k
-    Requests:
-      nvidia.com/gpu:       2
-      nvidia.com/gpucores:  30
-      nvidia.com/gpumem:    3k
-    Environment:            <none>
-    Mounts:
-      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-57256 (ro)
-Conditions:
-  Type           Status
-  PodScheduled   False 
-Volumes:
-  kube-api-access-57256:
-    Type:                    Projected (a volume that contains injected data from multiple sources)
-    TokenExpirationSeconds:  3607
-    ConfigMapName:           kube-root-ca.crt
-    ConfigMapOptional:       <nil>
-    DownwardAPI:             true
-QoS Class:                   BestEffort
-Node-Selectors:              <none>
-Tolerations:                 node.kubernetes.io/not-ready:NoExecute op=Exists for 300s
-                             node.kubernetes.io/unreachable:NoExecute op=Exists for 300s
+... (省略非关键信息)
 Events:
   Type     Reason            Age   From            Message
   ----     ------            ----  ----            -------
@@ -80,9 +42,6 @@ Events:
 
 ```log
 $ kubectl logs -f  hami-scheduler-d69cb679b-9vtdg -c vgpu-scheduler-extender
-I0422 13:42:30.272796       1 device.go:261] idx= nvidia.com/gpu val= {{2 0} {<nil>} 2 DecimalSI} {{0 0} {<nil>}  }
-I0422 13:42:30.272802       1 device.go:261] idx= nvidia.com/gpucores val= {{30 0} {<nil>} 30 DecimalSI} {{0 0} {<nil>}  }
-I0422 13:42:30.272804       1 device.go:261] idx= nvidia.com/gpumem val= {{3 3} {<nil>} 3k DecimalSI} {{0 0} {<nil>}  }
 I0422 13:42:30.272812       1 pod.go:44] "collect requestreqs" counts=[{"NVIDIA":{"Nums":2,"Type":"NVIDIA","Memreq":3000,"MemPercentagereq":101,"Coresreq":30}}]
 I0422 13:42:30.272819       1 scheduler.go:352] "node unregistered" node="k8s-master1" error="node k8s-master1 not found"
 I0422 13:42:30.272824       1 scheduler.go:490] "getNodesUsage failed nodes" nodes={"k8s-master1":"node unregistered"}
@@ -91,144 +50,76 @@ I0422 13:42:30.273047       1 event.go:307] "Event occurred" object="default/gpu
 ```
 ### 用户提交多个任务时，节点打分日志交错，无法区分日志信息是哪个任务哪个节点的
 
-由于节点打分是多协程处理的，因此多个节点之间的日志交叉打印，导致用户无法区分日志信息是哪个任务哪个节点哪个设备的。
+由于节点打分是多协程处理的，因此多个节点之间的日志交叉打印，导致用户无法区分日志信息是哪个Pod在哪个节点上哪个设备的信息。 譬如用户提交了一个任务，用户
+的K8S集群有10个节点，每个节点上有8张卡，那么此时如果这个任务调度失败，就会有80条日志信息，由于节点打分是多协程处理的，因此这些日志信息是交叉打印的。
+在用户观察日志的时候无法区分当前v5级别的日志是哪个Pod在哪个节点上哪个设备的信息。
 
 
-## 目标
+## 提案
 
-1. 针对于Pod调度进入hami-scheduler的场景，优化Pod event日志信息，输出可能的每种原因，以及对应原因的Node数量。
-2. hami-scheduler在调度Pod过程中，需要详细打印每个Node失败的原因，和事件中的失败原因相对应，方便用户根据失败原因排查对应的节点。
+采用pod event加调度器日志的方式，帮助用户快速定位节点问题。 pod event中显示不同类型节点调度失败的数量，若Pod成功调度，需要显示调度失败
+的数量，与此同时显示所有调度成功节点的分数。 日志采用两级日志设计，v4级别的日志为当前节点调度失败或者成功的总览信息，若节点调度失败，
+显示当前节点由于不同原因失败的卡的数量，若节点调度成功，显示当前节点调度成功的节点的分数。 v5级别的日志显示节点每张卡不合适的原因。
 
-## 日志格式：
+### event
 
-失败原因 Pod名称 Node名称 容器名称 设备ID/UUID [内存、算力、类型、数量]
+event在保持精简的同时，需要让用户总体知晓当前集群不同类型节点调度失败的数量。在pod pending的时候，event显示每种类型节点的数量。
+在pod running的时候, event需要显示不同类型失败的节点数量，以及成功节点的分数。
 
-失败原因需要规范，尽可能的精简，不要过长。规范后，event message会比较清晰精简。
+下面是Pod调度失败的event事件实例，仅需要展示不同类型节点的数量，不需要展示具体的节点名称，也不需要展示节点具体因为哪些设备调度失败的原因
+```
+Events:
+  Type     Reason            Age    From            Message
+  ----     ------            ----   ----            -------  TODO 如果申请的英伟达的卡，会传递其它类型节点么
+  Warning  FilteringFailed   2m45s  hami-scheduler  no available node, 10 node not fit(ascend:3, nvidia:3, cambricon:2, metax:1, hygon:1)
+```
+
+下面是调度成功event事件实例，需要展示不同类型节点失败的数量，以及成功节点的数量,和成功节点的分数。
+```
+Events:
+  Type     Reason            Age    From            Message
+  ----     ------            ----   ----            -------
+  Normal  FilteringSucceed   2m45s  hami-scheduler  find fit node, 7 node not fit(ascend:1, nvidia:4, cambricon:2),2 node fit(node3:0.98, node4:0.65)
+```
+
+### log
+
+每条日志格式规范为：失败原因 Pod名称 Node名称 容器名称 设备ID或者设备UUID
+
+失败原因需要规范，尽可能的精简，不要过长，如下是一些简化的失败原因：
 
 request devices nums cannot exceed the total number of devices on the node -> device request exceeds node capacity
 card type mismatch,continuing... -> card type mismatch
 the container wants exclusive access to an entire card, but the card is already in use pod -> exclusive device allocation conflicts with active pod
 
-## 提案一
-
-采用pod event组合调度器日志的方式，帮助用户快速定位节点问题。 pod event中汇总所有节点的失败原因，仅显示每种原因失败节点的数量。由于节点不可用
-都是因为设备不满足，但是一个节点通常存在多张卡，因此需要将所有设备不满足的原因全部罗列出来。
-
-```yaml
-resources:
-limits:
-  nvidia.com/vgpu: 2
-  nvidia.com/gpumem: 2000
-  nvidia.com/gpucores: 90
+下面是调度失败的日志示例，v4级别的日志为节点级别的日志，每个节点只有一条; v5为节点设备级别的日志，每个节点的每个设备可能有一条
 ```
-
-event：
-```log
-Events:
-  Type     Reason            Age    From            Message
-  ----     ------            ----   ----            ------- （取最后一个容器所有卡失败的原因作为当前节点不合适的原因）
-  Warning  FilteringFailed   2m45s  hami-scheduler  no available node, node1[2 device card type mismatch, 1 device Insufficient remaining memory],
-   node2[8 device request devices nums cannot exceed the total number of devices on the node], node3[2 node the container wants exclusive access to an entire card, but the card is already in use pod，
-    4 node card Insufficient remaining cores, 1 node card Insufficient remaining memory, 1 node card uuid mismatch],
-    node4[1 node card type mismatch, 1 node card Insufficient remaining memory, 1 node card Insufficient remaining cores,
-    1 node the container wants exclusive access to an entire card, but the card is already in use pod 2 node card uuid mismatch]
+(v=5)I0422 02:15:42.349712  1 scheduler.go:499] device request exceeds node capacity  pod="deepseek-5996b8569d-kgwgx" node="node2" container="worke1"
+(v=5)I0422 02:15:42.349712  1 scheduler.go:499] card type mismatch pod="deepseek-5996b8569d-kgwgx" node="node1" container="worke1" device=7,
+(v=5)I0422 02:15:42.349712  1 scheduler.go:499] card Insufficient remaining memory pod="deepseek-5996b8569d-kgwgx" node="node3" container="worke1" device="7" 
+(v=5)I0422 02:15:42.349712  1 scheduler.go:499] card type mismatch pod="deepseek-5996b8569d-kgwgx" node="node2" container="worke1" device=7,
+(v=5)I0422 02:15:42.349712  1 scheduler.go:499] card uuid mismatch pod="deepseek-5996b8569d-kgwgx" node="node1" container="worke1" device=6,
+(v=5)I0422 02:15:42.349712  1 scheduler.go:499] card Insufficient remaining memory pod="deepseek-5996b8569d-kgwgx" node="node1" container="worke1" device="5" 
+(v=5)I0422 02:15:42.349712  1 scheduler.go:499] card Insufficient remaining memory pod="deepseek-5996b8569d-kgwgx" node="node2" container="worke1" device="4" 
+(v=5)I0422 02:15:42.349712  1 scheduler.go:499] card Insufficient remaining memory pod="deepseek-5996b8569d-kgwgx" node="node1" container="worke1" device="3" 
+(v=5)I0422 02:15:42.349712  1 scheduler.go:499] card Insufficient remaining memory pod="deepseek-5996b8569d-kgwgx" node="node4" container="worke1" device="7" 
+(v=5)I0422 02:15:42.349712  1 scheduler.go:499] card Insufficient remaining memory pod="deepseek-5996b8569d-kgwgx" node="node1" container="worke1" device="4" 
+(v=5)I0422 02:15:42.349712  1 scheduler.go:499] card Insufficient remaining memory pod="deepseek-5996b8569d-kgwgx" node="node2" container="worke1" device="3" 
+(v=5)I0422 02:15:42.349712  1 scheduler.go:499] card Insufficient remaining memory pod="deepseek-5996b8569d-kgwgx" node="node4" container="worke1" device="5" 
+(v=5)I0422 02:15:42.349712  1 scheduler.go:499] card Insufficient remaining cores pod="deepseek-5996b8569d-kgwgx" node="node2" container="worke1"  device="2"
+(v=5)I0422 02:15:42.349712  1 scheduler.go:499] card Insufficient remaining cores pod="deepseek-5996b8569d-kgwgx" node="node1" container="worke1"  device="2"
+(v=5)I0422 02:15:42.349712  1 scheduler.go:499] card Insufficient remaining cores pod="deepseek-5996b8569d-kgwgx" node="node1" container="worke1"  device="1"
+(v=5)I0422 02:15:42.349712  1 scheduler.go:499] exclusive device allocation conflicts with active pod pod="deepseek-5996b8569d-kgwgx" node="node1" container="worke1" device="0"
+(v=4)I0422 02:15:42.349712  1 scheduler.go:499] node unfit pod="deepseek-5996b8569d-kgwgx" node="node1" reason="2 card type mismatch, 3 card Insufficient remaining memory, 2 card Insufficient remaining cores, 1 exclusive device allocation conflicts with active pod"
+(v=5)I0422 02:15:42.349712  1 scheduler.go:499] card uuid mismatch pod="deepseek-5996b8569d-kgwgx" node="node2" container="worke1" device=6,
+(v=5)I0422 02:15:42.349712  1 scheduler.go:499] card Insufficient remaining memory pod="deepseek-5996b8569d-kgwgx" node="node2" container="worke1" device="5" 
+(v=5)I0422 02:15:42.349712  1 scheduler.go:499] card Insufficient remaining cores pod="deepseek-5996b8569d-kgwgx" node="node4" container="worke1"  device="0"
+(v=4)I0422 02:15:42.349712  1 scheduler.go:499] node fit pod="deepseek-5996b8569d-kgwgx" node="node4" score="0.26"
+(v=5)I0422 02:15:42.349712  1 scheduler.go:499] card Insufficient remaining cores pod="deepseek-5996b8569d-kgwgx" node="node2" container="worke1"  device="1"
+(v=5)I0422 02:15:42.349712  1 scheduler.go:499] exclusive device allocation conflicts with active pod pod="deepseek-5996b8569d-kgwgx" node="node2" container="worke1" device="0"
+(v=4)I0422 02:15:42.349712  1 scheduler.go:499] node unfit pod="deepseek-5996b8569d-kgwgx" node="node2" reason="2 card type mismatch, 3 card Insufficient remaining memory, 2 card Insufficient remaining cores, 1 exclusive device allocation conflicts with active pod"
+(v=5)I0422 02:15:42.349712  1 scheduler.go:499] card Insufficient remaining memory pod="deepseek-5996b8569d-kgwgx" node="node3" container="worke1" device="5" 
+(v=5)I0422 02:15:42.349712  1 scheduler.go:499] card Insufficient remaining cores pod="deepseek-5996b8569d-kgwgx" node="node3" container="worke1"  device="0"
+(v=4)I0422 02:15:42.349712  1 scheduler.go:499] node fit pod="deepseek-5996b8569d-kgwgx" node="node3" score="0.65"
+(v=4)I0422 02:15:42.349712  1 scheduler.go:499] node fit pod="deepseek-5996b8569d-kgwgx" node="node5" score="0.85"
 ```
-
-日志：
-```
-I0422 02:15:42.349712  1 scheduler.go:499] request devices nums cannot exceed the total number of devices on the node.  pod="deepseek-5996b8569d-kgwgx" node="node1" container="worke1"
-I0422 02:15:42.349712  1 scheduler.go:499] card type mismatch,continuing...  pod="deepseek-5996b8569d-kgwgx" node="node1" container="worke1"
-I0422 02:15:42.349712  1 scheduler.go:499] card uuid mismatch pod="deepseek-5996b8569d-kgwgx" node="node1" container="worke1"
-I0422 02:15:42.349712  1 scheduler.go:499] card Insufficient remaining memory pod="deepseek-5996b8569d-kgwgx" node="node1" container="worke1" 
-I0422 02:15:42.349712  1 scheduler.go:499] card Insufficient remaining cores pod="deepseek-5996b8569d-kgwgx" node="node1" container="worke1"
-I0422 02:15:42.349712  1 scheduler.go:499] the container wants exclusive access to an entire card, but the card is already in use pod="deepseek-5996b8569d-kgwgx" node="node1" container="worke1"
-I0422 02:15:42.349712  1 scheduler.go:499] calcScore:node not fit  pod="deepseek-5996b8569d-kgwgx]" node="node1"
-
-```
-
-该方案，event事件清晰过于详细，event message会被拦截，用户查看事件时不会太方便。
-
-
-## 提案二
-
-采用pod event组合调度器日志的方式，帮助用户快速定位节点问题。 pod event中汇总所有节点的失败原因，仅显示每种原因失败节点的数量。由于节点不可用
-都是因为设备不满足，一个节点通常存在多张卡，若把所有设备不满足的原因全部罗列出来，event消息过于冗长，k8s本身也会对event消息进行截断，因此需要
-把节点不满足的原因收敛，使用最后一个设备不满足的原因作为节点失败原因。
-
-```yaml
-resources:
-limits:
-  nvidia.com/vgpu: 2
-  nvidia.com/gpumem: 2000
-  nvidia.com/gpucores: 90
-```
-
-event：
-```log
-Events:
-  Type     Reason            Age    From            Message
-  ----     ------            ----   ----            ------- （最后一个容器，最后一个卡不满足的原因作为节点失败的原因）
-  Warning  FilteringFailed   2m45s  hami-scheduler  no available node, 2 node request devices nums cannot exceed the total number of devices on the node.
-   , 2 node card type mismatch, 1 node card Insufficient remaining memory, 1 node card Insufficient remaining cores, 
-   1 node the container wants exclusive access to an entire card, but the card is already in use
-```
-
-日志：
-```
-I0422 02:15:42.349712  1 scheduler.go:499] request devices nums cannot exceed the total number of devices on the node.  pod="deepseek-5996b8569d-kgwgx" node="node1" container="worke1"
-I0422 02:15:42.349712  1 scheduler.go:499] card type mismatch,continuing...  pod="deepseek-5996b8569d-kgwgx" node="node1" container="worke1"
-I0422 02:15:42.349712  1 scheduler.go:499] card uuid mismatch pod="deepseek-5996b8569d-kgwgx" node="node1" container="worke1"
-I0422 02:15:42.349712  1 scheduler.go:499] card Insufficient remaining memory pod="deepseek-5996b8569d-kgwgx" node="node1" container="worke1" 
-I0422 02:15:42.349712  1 scheduler.go:499] card Insufficient remaining cores pod="deepseek-5996b8569d-kgwgx" node="node1" container="worke1"
-I0422 02:15:42.349712  1 scheduler.go:499] the container wants exclusive access to an entire card, but the card is already in use pod="deepseek-5996b8569d-kgwgx" node="node1" container="worke1"
-I0422 02:15:42.349712  1 scheduler.go:499] calcScore:node not fit  pod="deepseek-5996b8569d-kgwgx]" node="node1"
-
-```
-这种方案，相对来说，会省略一些节点不满足的具体原因，但是可以根据日志信息，通过pod名称，节点名称快速找到节点不满足的原因。于此同时，由于event日志信息
-只有一条，不会对apiserver有太多压力
-
-## 提案三
-
-采用pod event组合调度器日志的方式，帮助用户快速定位节点问题。 pod event中汇总所有节点的失败原因，由于节点不可用都是因为设备不满足，一个节点通常存在多张卡，
-因此把每一个不满足的节点以单独的事件输出，并且描述该节点不满足的原因，即详细罗列每个设备不满足的原因并汇总。
-
-```yaml
-resources:
-limits:
-  nvidia.com/vgpu: 2
-  nvidia.com/gpumem: 2000
-  nvidia.com/gpucores: 90
-```
-
-event：
-```log
-Events:
-  Type     Reason            Age    From            Message
-  ----     ------            ----   ----            ------- （收集最后一个容器失败的原因）
-  Warning  FilteringFailed   2m45s  hami-scheduler  node1 2 device card type mismatch, 5 device Insufficient remaining memory, 
-      1 device Insufficient remaining cores
-  Warning  FilteringFailed   2m45s  hami-scheduler  node2 request devices nums cannot exceed the total number of devices on the node
-  Warning  FilteringFailed   2m45s  hami-scheduler  node3 2 node the container wants exclusive access to an entire card, but the card is already in use pod
-    4 node card Insufficient remaining cores, 1 node card Insufficient remaining memory, 1 node card uuid mismatch
-  Warning  FilteringFailed   2m45s  hami-scheduler  node4 1 card type mismatch, 4 node card Insufficient remaining cores, 
-     1 node card Insufficient remaining memory, 2 node card uuid mismatch
-  Warning  FilteringFailed   2m45s  hami-scheduler  no available node
-```
-
-日志：
-```
-I0422 02:15:42.349712  1 scheduler.go:499] request devices nums cannot exceed the total number of devices on the node.  pod="deepseek-5996b8569d-kgwgx" node="node2" container="worke1"
-I0422 02:15:42.349712  1 scheduler.go:499] card type mismatch,continuing...  pod="deepseek-5996b8569d-kgwgx" node="node1" container="worke1"
-I0422 02:15:42.349712  1 scheduler.go:499] card uuid mismatch pod="deepseek-5996b8569d-kgwgx" node="node1" container="worke1"
-I0422 02:15:42.349712  1 scheduler.go:499] card Insufficient remaining memory pod="deepseek-5996b8569d-kgwgx" node="node1" deviceid=7, container="worke1" 
-I0422 02:15:42.349712  1 scheduler.go:499] card Insufficient remaining memory pod="deepseek-5996b8569d-kgwgx" node="node1" deviceid=6, container="worke1" 
-I0422 02:15:42.349712  1 scheduler.go:499] card Insufficient remaining memory pod="deepseek-5996b8569d-kgwgx" node="node1" deviceid=4, container="worke1" 
-I0422 02:15:42.349712  1 scheduler.go:499] card Insufficient remaining memory pod="deepseek-5996b8569d-kgwgx" node="node1" deviceid=3, container="worke1" 
-I0422 02:15:42.349712  1 scheduler.go:499] card Insufficient remaining memory pod="deepseek-5996b8569d-kgwgx" node="node1" deviceid=1, container="worke1" 
-I0422 02:15:42.349712  1 scheduler.go:499] card Insufficient remaining cores pod="deepseek-5996b8569d-kgwgx" node="node1" container="worke1"
-I0422 02:15:42.349712  1 scheduler.go:499] the container wants exclusive access to an entire card, but the card is already in use pod="deepseek-5996b8569d-kgwgx" node="node1" container="worke1"
-I0422 02:15:42.349712  1 scheduler.go:499] calcScore:node not fit  pod="deepseek-5996b8569d-kgwgx]" node="node1"
-
-```
-
-这种方案的事件非常清晰，若当前集群节点数较多，那么势必造成Pod event日志信息过多，可能会对于apiserver性能有影响。 所以需要搞清楚目前用户集群一般有多少个节点。
