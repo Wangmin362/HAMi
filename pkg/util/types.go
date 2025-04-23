@@ -63,18 +63,22 @@ type ContainerDevice struct {
 }
 
 type ContainerDeviceRequest struct {
-	Nums             int32
-	Type             string
-	Memreq           int32
-	MemPercentagereq int32
-	Coresreq         int32
+	Nums             int32  // 容器请求当前设备的数量
+	Type             string // 容器请求当前设备的类型
+	Memreq           int32  // 内存请求
+	MemPercentagereq int32  // 内存百分比请求
+	Coresreq         int32  // 算力请求
 }
 
 type ContainerDevices []ContainerDevice
+
+// 这里的Key为设备类型
 type ContainerDeviceRequests map[string]ContainerDeviceRequest
 
 // type ContainerAllDevices map[string]ContainerDevices.
 type PodSingleDevice []ContainerDevices
+
+// 数组索引为容器索引
 type PodDeviceRequests []ContainerDeviceRequests
 type PodDevices map[string]PodSingleDevice
 

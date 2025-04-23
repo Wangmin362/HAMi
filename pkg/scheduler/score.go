@@ -113,21 +113,27 @@ func fitInCertainDevice(
 			memreq = node.Devices.DeviceLists[i].Device.Totalmem * k.MemPercentagereq / 100
 		}
 		if node.Devices.DeviceLists[i].Device.Totalmem-node.Devices.DeviceLists[i].Device.Usedmem < memreq {
-			klog.V(5).InfoS("card Insufficient remaining memory", "pod", klog.KObj(pod), "device index", i, "device", node.Devices.DeviceLists[i].Device.ID, "device total memory", node.Devices.DeviceLists[i].Device.Totalmem, "device used memory", node.Devices.DeviceLists[i].Device.Usedmem, "request memory", memreq)
+			klog.V(5).InfoS("card Insufficient remaining memory", "pod", klog.KObj(pod),
+				"device index", i, "device", node.Devices.DeviceLists[i].Device.ID, "device total memory", node.Devices.DeviceLists[i].Device.Totalmem,
+				"device used memory", node.Devices.DeviceLists[i].Device.Usedmem, "request memory", memreq)
 			continue
 		}
 		if node.Devices.DeviceLists[i].Device.Totalcore-node.Devices.DeviceLists[i].Device.Usedcores < k.Coresreq {
-			klog.V(5).InfoS("card Insufficient remaining cores", "pod", klog.KObj(pod), "device index", i, "device", node.Devices.DeviceLists[i].Device.ID, "device total core", node.Devices.DeviceLists[i].Device.Totalcore, "device used core", node.Devices.DeviceLists[i].Device.Usedcores, "request cores", k.Coresreq)
+			klog.V(5).InfoS("card Insufficient remaining cores", "pod", klog.KObj(pod),
+				"device index", i, "device", node.Devices.DeviceLists[i].Device.ID, "device total core", node.Devices.DeviceLists[i].Device.Totalcore,
+				"device used core", node.Devices.DeviceLists[i].Device.Usedcores, "request cores", k.Coresreq)
 			continue
 		}
 		// Coresreq=100 indicates it want this card exclusively
 		if node.Devices.DeviceLists[i].Device.Totalcore == 100 && k.Coresreq == 100 && node.Devices.DeviceLists[i].Device.Used > 0 {
-			klog.V(5).InfoS("the container wants exclusive access to an entire card, but the card is already in use", "pod", klog.KObj(pod), "device index", i, "device", node.Devices.DeviceLists[i].Device.ID, "used", node.Devices.DeviceLists[i].Device.Used)
+			klog.V(5).InfoS("the container wants exclusive access to an entire card, but the card is already in use",
+				"pod", klog.KObj(pod), "device index", i, "device", node.Devices.DeviceLists[i].Device.ID, "used", node.Devices.DeviceLists[i].Device.Used)
 			continue
 		}
 		// You can't allocate core=0 job to an already full GPU
 		if node.Devices.DeviceLists[i].Device.Totalcore != 0 && node.Devices.DeviceLists[i].Device.Usedcores == node.Devices.DeviceLists[i].Device.Totalcore && k.Coresreq == 0 {
-			klog.V(5).InfoS("can't allocate core=0 job to an already full GPU", "pod", klog.KObj(pod), "device index", i, "device", node.Devices.DeviceLists[i].Device.ID)
+			klog.V(5).InfoS("can't allocate core=0 job to an already full GPU", "pod", klog.KObj(pod),
+				"device index", i, "device", node.Devices.DeviceLists[i].Device.ID)
 			continue
 		}
 		if !device.GetDevices()[k.Type].CustomFilterRule(allocated, request, tmpDevs[k.Type], node.Devices.DeviceLists[i].Device) {
@@ -149,7 +155,7 @@ func fitInCertainDevice(
 			klog.InfoS("device allocate success", "pod", klog.KObj(pod), "allocate device", tmpDevs)
 			return true, tmpDevs
 		}
-		// 如果是GPU，GPU在MIG模式下可以划分为多个实例。因此GPU分配两个一个MIG实例，也许剩下的MIG实例还可以给容器分配
+		// 如果是GPU，GPU在MIG模式下可以划分为多个实例。因此GPU分配一个MIG实例，也许剩下的MIG实例还可以给其它需求分配
 		if node.Devices.DeviceLists[i].Device.Mode == "mig" {
 			i++
 		}
@@ -272,6 +278,7 @@ func (s *Scheduler) calcScore(nodes *map[string]*NodeUsage, nums util.PodDeviceR
 				}
 			}
 
+			// 说明所有容器都可以满足需求，那么当前节点就是一个合适的节点，可以部署这个Pod
 			if ctrfit {
 				mutex.Lock()
 				// 说明当前节点满足当前Pod所有容器的需求
