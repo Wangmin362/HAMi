@@ -80,6 +80,11 @@ func (s *Scheduler) doNodeNotify() {
 	}
 }
 
+// 1. 如果当前Pod没有hami.io/vgpu-node注解，说明Pod还没有被hami调度，直接忽略这种类型的设备  TODO,如果是多调度器的场景，是否会有多调度器资源竞争的情况
+// 2. 如果当前Pod被删除了，就从缓存中删除这个Pod，之所以要删除，是因为后续hami调度的时候，为了获取节点已经使用的资源，需要
+// 从节点的每个Pod上获取这个Pod使用的资源信息，因此需要从缓存中删除这个Pod，相当于释放这个Pod使用的资源。
+// 3. 通过Pod的注解信息，获取当前Pod所有容器使用的设备信息
+// 4. 缓存Pod信息到podManager中，可以理解为Pod缓存
 func (s *Scheduler) onAddPod(obj any) {
 	pod, ok := obj.(*corev1.Pod)
 	if !ok {
@@ -87,14 +92,18 @@ func (s *Scheduler) onAddPod(obj any) {
 		return
 	}
 	klog.V(5).InfoS("Pod added", "pod", pod.Name, "namespace", pod.Namespace)
+	// 如果Pod没有hami.io/vgpu-node注解，说明Pod还没有被hami调度
 	nodeID, ok := pod.Annotations[util.AssignedNodeAnnotations]
 	if !ok {
 		return
 	}
+	// 如果当前Pod被删除了，就从缓存中删除这个Pod，之所以要删除，是因为后续hami调度的时候，为了获取节点已经使用的资源，需要
+	// 从节点的每个Pod上获取这个Pod使用的资源信息，因此需要从缓存中删除这个Pod，相当于释放这个Pod使用的资源。
 	if k8sutil.IsPodInTerminatedState(pod) {
 		s.delPod(pod)
 		return
 	}
+	// 通过Pod的注解信息，获取当前Pod所有容器使用的设备信息
 	podDev, _ := util.DecodePodDevices(util.SupportDevices, pod.Annotations)
 	s.addPod(pod, nodeID, podDev)
 }
@@ -109,6 +118,7 @@ func (s *Scheduler) onDelPod(obj any) {
 		klog.Errorf("unknown add object type")
 		return
 	}
+	// 不存在hami.io/vgpu-node注解，直接忽略
 	_, ok = pod.Annotations[util.AssignedNodeAnnotations]
 	if !ok {
 		return
@@ -124,6 +134,11 @@ func (s *Scheduler) Start() {
 	s.nodeLister = informerFactory.Core().V1().Nodes().Lister()
 
 	informerFactory.Core().V1().Pods().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		// 1. 如果当前Pod没有hami.io/vgpu-node注解，说明Pod没有被hami调度，直接忽略这种类型的设备
+		// 2. 如果当前Pod被删除了，就从缓存中删除这个Pod，之所以要删除，是因为后续hami调度的时候，为了获取节点已经使用的资源，需要
+		// 从节点的每个Pod上获取这个Pod使用的资源信息，因此需要从缓存中删除这个Pod，相当于释放这个Pod使用的资源。
+		// 3. 通过Pod的注解信息，获取当前Pod所有容器使用的设备信息
+		// 4. 缓存Pod信息到podManager中，可以理解为Pod缓存
 		AddFunc:    s.onAddPod,
 		UpdateFunc: s.onUpdatePod,
 		DeleteFunc: s.onDelPod,
@@ -142,6 +157,7 @@ func (s *Scheduler) Stop() {
 	close(s.stopCh)
 }
 
+// RegisterFromNodeAnnotations 根据节点的注解信息获取当前节点的设备，并且根据节点上所有Pod申请的资源信息可以汇总出当前节点的使用信息
 func (s *Scheduler) RegisterFromNodeAnnotations() {
 	klog.InfoS("Entering RegisterFromNodeAnnotations")
 	defer klog.InfoS("Exiting RegisterFromNodeAnnotations")
@@ -162,6 +178,7 @@ func (s *Scheduler) RegisterFromNodeAnnotations() {
 			klog.InfoS("Received stop signal, exiting RegisterFromNodeAnnotations")
 			return
 		}
+		// 遍历所有的节点
 		rawNodes, err := s.nodeLister.List(labelSelector)
 		if err != nil {
 			klog.ErrorS(err, "Failed to list nodes with selector", "selector", labelSelector.String())
@@ -176,16 +193,19 @@ func (s *Scheduler) RegisterFromNodeAnnotations() {
 			for devhandsk, devInstance := range device.GetDevices() {
 				klog.V(5).InfoS("Checking device health", "nodeName", val.Name, "deviceVendor", devhandsk)
 
+				// 检查当前节点是否健康
 				health, needUpdate := devInstance.CheckHealth(devhandsk, val)
 				klog.V(5).InfoS("Device health check result", "nodeName", val.Name, "deviceVendor", devhandsk, "health", health, "needUpdate", needUpdate)
 
 				if !health {
 					klog.Warning("Device is unhealthy, cleaning up node", "nodeName", val.Name, "deviceVendor", devhandsk)
+					// 给节点打上类似hami.io/node-handshake-dcu: Deleted_2024.07.15 06:35:00的注解信息
 					err := devInstance.NodeCleanUp(val.Name)
 					if err != nil {
 						klog.ErrorS(err, "Node cleanup failed", "nodeName", val.Name, "deviceVendor", devhandsk)
 					}
 
+					// 当前节点移除指定类型的设备，保留其它类型的设备，一般是节点处于不健康的情况下会有这样的需求
 					s.rmNodeDevices(val.Name, devhandsk)
 					continue
 				}
@@ -195,6 +215,7 @@ func (s *Scheduler) RegisterFromNodeAnnotations() {
 				}
 				_, ok := util.HandshakeAnnos[devhandsk]
 				if ok {
+					// 给节点打上类似hami.io/node-handshake-dcu: Requesting_2024.07.15 06:35:00的注解信息
 					tmppat := make(map[string]string)
 					tmppat[util.HandshakeAnnos[devhandsk]] = "Requesting_" + time.Now().Format(time.DateTime)
 					klog.InfoS("New timestamp for annotation", "nodeName", val.Name, "annotationKey", util.HandshakeAnnos[devhandsk], "annotationValue", tmppat[util.HandshakeAnnos[devhandsk]])
@@ -212,6 +233,7 @@ func (s *Scheduler) RegisterFromNodeAnnotations() {
 				nodeInfo.ID = val.Name
 				nodeInfo.Node = val
 				klog.V(5).InfoS("Fetching node devices", "nodeName", val.Name, "deviceVendor", devhandsk)
+				// GetNodeDevices 通过类似hami.io/node-nvidia-register的注解，获取当前节点注册上来的设备信息
 				nodedevices, err := devInstance.GetNodeDevices(*val)
 				if err != nil {
 					klog.V(5).InfoS("Failed to get node devices", "nodeName", val.Name, "deviceVendor", devhandsk)
@@ -246,6 +268,7 @@ func (s *Scheduler) InspectAllNodesUsage() *map[string]*NodeUsage {
 
 // returns all nodes and its device memory usage, and we filter it with nodeSelector, taints, nodeAffinity
 // unschedulerable and nodeName.
+// TODO 节点使用资源的信息主要还是通过：节点总资源，当前节点上所有Pod使用资源的信息汇总出来的
 func (s *Scheduler) getNodesUsage(nodes *[]string, task *corev1.Pod) (*map[string]*NodeUsage, map[string]string, error) {
 	overallnodeMap := make(map[string]*NodeUsage)
 	cachenodeMap := make(map[string]*NodeUsage)

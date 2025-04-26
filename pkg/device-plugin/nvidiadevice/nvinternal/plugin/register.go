@@ -108,6 +108,7 @@ func parseNvidiaNumaInfo(idx int, nvidiaTopoStr string) (int, error) {
 }
 
 func (plugin *NvidiaDevicePlugin) getAPIDevices() *[]*util.DeviceInfo {
+	// 通过nvml获取设备信息
 	devs := plugin.Devices()
 	klog.V(5).InfoS("getAPIDevices", "devices", devs)
 	if nvret := nvml.Init(); nvret != nvml.SUCCESS {
@@ -179,6 +180,7 @@ func (plugin *NvidiaDevicePlugin) getAPIDevices() *[]*util.DeviceInfo {
 }
 
 func (plugin *NvidiaDevicePlugin) RegistrInAnnotation() error {
+	// 通过NVML获取设备信息
 	devices := plugin.getAPIDevices()
 	klog.InfoS("start working on the devices", "devices", devices)
 	annos := make(map[string]string)
@@ -188,6 +190,7 @@ func (plugin *NvidiaDevicePlugin) RegistrInAnnotation() error {
 		return err
 	}
 	encodeddevices := util.EncodeNodeDevices(*devices)
+	// 上报当前节点最新的设别信息
 	annos[nvidia.HandshakeAnnos] = "Reported " + time.Now().String()
 	annos[nvidia.RegisterAnnos] = encodeddevices
 	klog.Infof("patch node with the following annos %v", fmt.Sprintf("%v", annos))
@@ -199,11 +202,13 @@ func (plugin *NvidiaDevicePlugin) RegistrInAnnotation() error {
 	return err
 }
 
+// WatchAndRegister 通过NVML获取当前设备的信息，然后注册到节点的注解当中: hami.io/node-handshake,hami.io/node-nvidia-register
 func (plugin *NvidiaDevicePlugin) WatchAndRegister() {
 	klog.Info("Starting WatchAndRegister")
 	errorSleepInterval := time.Second * 5
 	successSleepInterval := time.Second * 30
 	for {
+		// 通过NVML获取当前设备的信息，然后注册到节点的注解当中: hami.io/node-handshake,hami.io/node-nvidia-register
 		err := plugin.RegistrInAnnotation()
 		if err != nil {
 			klog.Errorf("Failed to register annotation: %v", err)
@@ -211,6 +216,7 @@ func (plugin *NvidiaDevicePlugin) WatchAndRegister() {
 			time.Sleep(errorSleepInterval)
 		} else {
 			klog.Infof("Successfully registered annotation. Next check in %v seconds...", successSleepInterval)
+			// 每隔30秒上报一次设备信息
 			time.Sleep(successSleepInterval)
 		}
 	}

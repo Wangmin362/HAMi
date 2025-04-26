@@ -254,6 +254,8 @@ func (plugin *NvidiaDevicePlugin) Start() error {
 	}()
 
 	go func() {
+		// 1. 通过NVML获取当前设备的信息，然后注册到节点的注解当中: hami.io/node-handshake,hami.io/node-nvidia-register
+		// 2. 每隔30秒上报一次设备信息
 		plugin.WatchAndRegister()
 	}()
 

@@ -32,7 +32,7 @@ type podInfo struct {
 	Name      string
 	UID       k8stypes.UID
 	NodeID    string
-	Devices   util.PodDevices
+	Devices   util.PodDevices // 当前Pod使用的设备信息，通过解析注解获取
 	CtrIDs    []string
 }
 
@@ -75,6 +75,7 @@ func (m *podManager) addPod(pod *corev1.Pod, nodeID string, devices util.PodDevi
 			"devices", devices,
 		)
 	} else {
+		// 存在的话直接更新设备信息
 		m.pods[pod.UID].Devices = devices
 		klog.InfoS("Pod devices updated",
 			"pod", klog.KRef(pod.Namespace, pod.Name),

@@ -34,18 +34,30 @@ import (
 )
 
 const (
-	HandshakeAnnos      = "hami.io/node-handshake"
+	// TODO 这个状态是怎么变化的
+	// 1. 对于nvidia设备类型，hami nvidia device-plugin会定期上报设备最新的状态，写入到hami.io/node-nvidia-register注解中，
+	// 与此同时，还会更新hami.io/node-handshake注解，用于表示当前节点已经完成了设备的上报，值为"Reported 2024-06-20 16:00:00"
+	HandshakeAnnos = "hami.io/node-handshake"
+	// 1. 这个注解信息打在节点上，用于表示当前节点拥有的设备信息，这个信息是device-plugin插件打上的
 	RegisterAnnos       = "hami.io/node-nvidia-register"
 	NvidiaGPUDevice     = "NVIDIA"
 	NvidiaGPUCommonWord = "GPU"
-	GPUInUse            = "nvidia.com/use-gputype"
-	GPUNoUse            = "nvidia.com/nouse-gputype"
-	NumaBind            = "nvidia.com/numa-bind"
-	NodeLockNvidia      = "hami.io/mutex.lock"
+	// 用户通过申明这个注解来指定使用的GPU设备类型
+	GPUInUse = "nvidia.com/use-gputype"
+	// 用户通过申明这个注解来指定不使用的GPU设备类型
+	GPUNoUse = "nvidia.com/nouse-gputype"
+	// 用户通过这个注解申明Pod需要使用NUMA特性
+	NumaBind       = "nvidia.com/numa-bind"
+	NodeLockNvidia = "hami.io/mutex.lock"
 	// GPUUseUUID is user can use specify GPU device for set GPU UUID.
+	// 用户通过这个注解指定需要使用的GPU设备的UUID
+	// 例如：nvidia.com/use-gpuuuid: "GPU-12345678-1234-1234-1234-123456789012"
 	GPUUseUUID = "nvidia.com/use-gpuuuid"
 	// GPUNoUseUUID is user can not use specify GPU device for set GPU UUID.
+	// 用户通过这个注解指定不使用的GPU设备的UUID
+	// 例如：nvidia.com/nouse-gpuuuid: "GPU-12345678-1234-1234-1234-123456789012"
 	GPUNoUseUUID = "nvidia.com/nouse-gpuuuid"
+	// TODO 可以指定哪些模式？
 	AllocateMode = "nvidia.com/vgpu-mode"
 
 	MigMode      = "mig"
@@ -219,11 +231,14 @@ func (dev *NvidiaGPUDevices) ReleaseNodeLock(n *corev1.Node, p *corev1.Pod) erro
 	return nodelock.ReleaseNodeLock(n.Name, NodeLockNvidia, p, false)
 }
 
+// GetNodeDevices 通过类似hami.io/node-nvidia-register的注解，获取当前节点注册上来的设备信息
 func (dev *NvidiaGPUDevices) GetNodeDevices(n corev1.Node) ([]*util.DeviceInfo, error) {
+	// 通过注解，获取当前节点注册上来的设备信息
 	devEncoded, ok := n.Annotations[RegisterAnnos]
 	if !ok {
 		return []*util.DeviceInfo{}, errors.New("annos not found " + RegisterAnnos)
 	}
+	// 通过Node注解反序列化节点的设备信息
 	nodedevices, err := util.DecodeNodeDevices(devEncoded)
 	if err != nil {
 		klog.ErrorS(err, "failed to decode node devices", "node", n.Name, "device annotation", devEncoded)

@@ -60,12 +60,18 @@ func init() {
 	rootCmd.Flags().StringVar(&tlsCertFile, "cert_file", "", "tls cert file")
 	rootCmd.Flags().StringVar(&tlsKeyFile, "key_file", "", "tls key file")
 	rootCmd.Flags().StringVar(&config.SchedulerName, "scheduler-name", "", "the name to be added to pod.spec.schedulerName if not empty")
+	// 设备限制的显存，默认不限制。
 	rootCmd.Flags().Int32Var(&config.DefaultMem, "default-mem", 0, "default gpu device memory to allocate")
+	// 算力限制，默认不限制。
 	rootCmd.Flags().Int32Var(&config.DefaultCores, "default-cores", 0, "default gpu core percentage to allocate")
+	// GPU数量限制，默认数量为1。
 	rootCmd.Flags().Int32Var(&config.DefaultResourceNum, "default-gpu", 1, "default gpu to allocate")
+	// 节点调度策略，默认为Binpack。
 	rootCmd.Flags().StringVar(&config.NodeSchedulerPolicy, "node-scheduler-policy", util.NodeSchedulerPolicyBinpack.String(), "node scheduler policy")
+	// GPU调度策略，默认为Spread。
 	rootCmd.Flags().StringVar(&config.GPUSchedulerPolicy, "gpu-scheduler-policy", util.GPUSchedulerPolicySpread.String(), "GPU scheduler policy")
 	rootCmd.Flags().StringVar(&config.MetricsBindAddress, "metrics-bind-address", ":9395", "The TCP address that the scheduler should bind to for serving prometheus metrics(e.g. 127.0.0.1:9395, :9395)")
+	// TODO 这里的节点标签是啥？是部署的节点标签还是调度的节点标签？
 	rootCmd.Flags().StringToStringVar(&config.NodeLabelSelector, "node-label-selector", nil, "key=value pairs separated by commas")
 	// add QPS and Burst to the global flagset
 	// qps and burst settings for the client-go client
@@ -73,6 +79,7 @@ func init() {
 	rootCmd.Flags().IntVar(&config.Burst, "kube-burst", 10, "Burst to use while talking with kube-apiserver.")
 	// Add profiling related flags
 	rootCmd.Flags().BoolVar(&enableProfiling, "profiling", false, "Enable pprof profiling via HTTP server")
+	// 各种类型设备的配置
 	rootCmd.PersistentFlags().AddGoFlagSet(device.GlobalFlagSet())
 	rootCmd.AddCommand(version.VersionCmd)
 	rootCmd.Flags().AddGoFlagSet(util.InitKlogFlags())
@@ -99,13 +106,17 @@ func injectProfilingRoute(router *httprouter.Router) {
 }
 
 func start() error {
+	// 初始化K8S客户端
 	client.InitGlobalClient(client.WithBurst(config.Burst), client.WithQPS(config.QPS))
+	// 初始化不同芯片的设备配置，初始化各种类型的设备预分配设备注解，分配设备主机，以及握手注解使用的名字
 	device.InitDevices()
 	sher = scheduler.NewScheduler()
+	// 通过Pod， Node缓存
 	sher.Start()
 	defer sher.Stop()
 
 	// start monitor metrics
+	// 根据节点的注解信息获取当前节点的设备，并且根据节点上所有Pod申请的资源信息可以汇总出当前节点的使用信息
 	go sher.RegisterFromNodeAnnotations()
 	go initMetrics(config.MetricsBindAddress)
 

@@ -53,6 +53,7 @@ func (m *nodeManager) addNode(nodeID string, nodeInfo *util.NodeInfo) {
 	defer m.mutex.Unlock()
 	_, ok := m.nodes[nodeID]
 	if ok {
+		// TODO 下面应该主要是在更新设备信息
 		if len(nodeInfo.Devices) > 0 {
 			tmp := make([]util.DeviceInfo, 0, len(nodeInfo.Devices))
 			devices := device.GetDevices()
@@ -75,6 +76,7 @@ func (m *nodeManager) addNode(nodeID string, nodeInfo *util.NodeInfo) {
 	}
 }
 
+// 当前节点移除指定类型的设备，保留其它类型的设备，一般是节点处于不健康的情况下会有这样的需求
 func (m *nodeManager) rmNodeDevices(nodeID string, deviceVendor string) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
@@ -86,7 +88,7 @@ func (m *nodeManager) rmNodeDevices(nodeID string, deviceVendor string) {
 
 	devices := make([]util.DeviceInfo, 0)
 	for _, val := range nodeInfo.Devices {
-		if val.DeviceVendor != deviceVendor {
+		if val.DeviceVendor != deviceVendor { // 删除指定设备类型的设备，保留其它类型的设备
 			devices = append(devices, val)
 		}
 	}

@@ -45,9 +45,11 @@ const (
 )
 
 var (
+	// hami调度器给Pod分配的设备使用的注解信息，但是Pod还没有真正的分配设备，key为不同的芯片类型,value为使用注解的key
 	InRequestDevices map[string]string
-	SupportDevices   map[string]string
-	HandshakeAnnos   map[string]string
+	// Pod真正使用的设备使用的注解信息，key为不同的芯片类型,value为使用注解的key
+	SupportDevices map[string]string
+	HandshakeAnnos map[string]string
 )
 
 func init() {
@@ -157,11 +159,11 @@ func DecodeNodeDevices(str string) ([]*DeviceInfo, error) {
 		if strings.Contains(val, ",") {
 			items := strings.Split(val, ",")
 			if len(items) == 7 || len(items) == 9 {
-				count, _ := strconv.ParseInt(items[1], 10, 32)
-				devmem, _ := strconv.ParseInt(items[2], 10, 32)
-				devcore, _ := strconv.ParseInt(items[3], 10, 32)
-				health, _ := strconv.ParseBool(items[6])
-				numa, _ := strconv.Atoi(items[5])
+				count, _ := strconv.ParseInt(items[1], 10, 32)   // TimeSlicing功能，即一个GPU支持同时部署任务的数量
+				devmem, _ := strconv.ParseInt(items[2], 10, 32)  // 现存大小
+				devcore, _ := strconv.ParseInt(items[3], 10, 32) // 算力
+				health, _ := strconv.ParseBool(items[6])         // 是否健康
+				numa, _ := strconv.Atoi(items[5])                // 当前设备所在的NUMA节点
 				mode := "hami-core"
 				index := 0
 				if len(items) == 9 {
@@ -272,6 +274,7 @@ func EncodePodDevices(checklist map[string]string, pd PodDevices) map[string]str
 	return res
 }
 
+// DecodeContainerDevices 通过注解解析Pod使用的设备信息：hami.io/vgpu-devices-allocated: GPU-0fc3eda5-e98b-a25b-5b0d-cf5c855d1448,NVIDIA,32768,0:
 func DecodeContainerDevices(str string) (ContainerDevices, error) {
 	if len(str) == 0 {
 		return ContainerDevices{}, nil
@@ -290,12 +293,12 @@ func DecodeContainerDevices(str string) (ContainerDevices, error) {
 			if len(tmpstr) < 4 {
 				return ContainerDevices{}, fmt.Errorf("pod annotation format error; information missing, please do not use nodeName field in task")
 			}
-			tmpdev.UUID = tmpstr[0]
-			tmpdev.Type = tmpstr[1]
+			tmpdev.UUID = tmpstr[0] // 设备的UUID
+			tmpdev.Type = tmpstr[1] // 设备的类型，譬如：NVIDIA, MLU, DCU 等等
 			devmem, _ := strconv.ParseInt(tmpstr[2], 10, 32)
-			tmpdev.Usedmem = int32(devmem)
+			tmpdev.Usedmem = int32(devmem) // 申请的内存
 			devcores, _ := strconv.ParseInt(tmpstr[3], 10, 32)
-			tmpdev.Usedcores = int32(devcores)
+			tmpdev.Usedcores = int32(devcores) // 申请的算力
 			contdev = append(contdev, tmpdev)
 		}
 	}
@@ -303,18 +306,22 @@ func DecodeContainerDevices(str string) (ContainerDevices, error) {
 	return contdev, nil
 }
 
+// DecodePodDevices 通过Pod的注解信息，获取当前Pod所有容器使用的设备信息
 func DecodePodDevices(checklist map[string]string, annos map[string]string) (PodDevices, error) {
 	klog.V(5).Infof("checklist is [%+v], annos is [%+v]", checklist, annos)
 	if len(annos) == 0 {
 		return PodDevices{}, nil
 	}
 	pd := make(PodDevices)
-	for devID, devs := range checklist {
+	for devID, devs := range checklist { // 遍历每一种类型的芯片信息，看看当前Pod使用了哪些不同类型的芯片
 		str, ok := annos[devs]
-		if !ok {
+		if !ok { // 如果没有找到，说明Pod没有使用这种类型的芯片
 			continue
 		}
 		pd[devID] = make(PodSingleDevice, 0)
+		// 譬如注解长这样：hami.io/vgpu-devices-allocated: GPU-0fc3eda5-e98b-a25b-5b0d-cf5c855d1448,NVIDIA,32768,0:GPU-0fc3eda5-e98b-a25b-5b0d-cf5c855d1448,NVIDIA,32768,0:;
+		// 规则就是通过 ; 分割不同的容器，通过 : 分割不同的设备信息
+		// 一个容器中可能存在同时申请多个设备，而且可能存在同时申请多种不同类型的设备
 		for _, s := range strings.Split(str, OnePodMultiContainerSplitSymbol) {
 			cd, err := DecodeContainerDevices(s)
 			if err != nil {
@@ -394,18 +401,25 @@ func InitKlogFlags() *flag.FlagSet {
 	return flagset
 }
 
+// CheckHealth 检查当前节点是否健康
 func CheckHealth(devType string, n *corev1.Node) (bool, bool) {
+	// 获取当前节点的握手注解信息：
+	// hami.io/node-handshake: Deleted_2025.04.21 08:55:49
+	// hami.io/node-handshake-dcu: Deleted_2025.04.21 08:55:50
 	handshake := n.Annotations[HandshakeAnnos[devType]]
 	if strings.Contains(handshake, "Requesting") {
+		// 60秒之内这个注解没有更新，说明节点不健康
 		formertime, _ := time.Parse(time.DateTime, strings.Split(handshake, "_")[1])
 		return time.Now().Before(formertime.Add(time.Second * 60)), false
 	} else if strings.Contains(handshake, "Deleted") {
 		return true, false
 	} else {
+		// 默认节点就是健康的
 		return true, true
 	}
 }
 
+// MarkAnnotationsToDelete 给节点打上类似hami.io/node-handshake-dcu: Deleted_2024.07.15 06:35:00的注解信息
 func MarkAnnotationsToDelete(devType string, nn string) error {
 	tmppat := make(map[string]string)
 	tmppat[devType] = "Deleted_" + time.Now().Format(time.DateTime)

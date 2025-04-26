@@ -24,6 +24,9 @@ const (
 	//ResourceName = "nvidia.com/gpu"
 	//ResourceName = "hami.io/vgpu".
 	AssignedTimeAnnotations = "hami.io/vgpu-time"
+	// AssignedNodeAnnotations
+	// 1. 当前一个Pod被hami调度之后，如果在Filter完成的时候找到了合适的Node，此时就会通过这个注解把选好的节点名写入到Pod上
+	// 2. 也就是说，只要一个Pod上被标记了这个注解，正常情况下都是hami设置的，说明这个Pod已经完成了hami调度
 	AssignedNodeAnnotations = "hami.io/vgpu-node"
 	BindTimeAnnotations     = "hami.io/bind-time"
 	DeviceBindPhase         = "hami.io/bind-phase"

@@ -45,7 +45,7 @@ import (
 type Devices interface {
 	CommonWord() string
 	MutateAdmission(ctr *corev1.Container, pod *corev1.Pod) (bool, error)
-	CheckHealth(devType string, n *corev1.Node) (bool, bool)
+	CheckHealth(devType string, n *corev1.Node) (healthy bool, needUpdate bool)
 	NodeCleanUp(nn string) error
 	GetNodeDevices(n corev1.Node) ([]*util.DeviceInfo, error)
 	CheckType(annos map[string]string, d util.DeviceUsage, n util.ContainerDeviceRequest) (bool, bool, bool)
@@ -61,6 +61,201 @@ type Devices interface {
 	//ParseConfig(fs *flag.FlagSet)
 }
 
+/* 各种类型的设备配置如下
+   nvidia:
+     resourceCountName: nvidia.com/gpu
+     resourceMemoryName: nvidia.com/gpumem
+     resourceMemoryPercentageName: nvidia.com/gpumem-percentage
+     resourceCoreName: nvidia.com/gpucores
+     resourcePriorityName: nvidia.com/priority
+     overwriteEnv: false
+     defaultMemory: 0
+     defaultCores: 0
+     defaultGPUNum: 1
+     deviceSplitCount: 10
+     deviceMemoryScaling: 1
+     deviceCoreScaling: 1
+     gpuCorePolicy: default
+     knownMigGeometries:
+     - models: [ "A30" ]
+       allowedGeometries:
+         -
+           - name: 1g.6gb
+             memory: 6144
+             count: 4
+         -
+           - name: 2g.12gb
+             memory: 12288
+             count: 2
+         -
+           - name: 4g.24gb
+             memory: 24576
+             count: 1
+     - models: [ "A100-SXM4-40GB", "A100-40GB-PCIe", "A100-PCIE-40GB", "A100-SXM4-40GB" ]
+       allowedGeometries:
+         -
+           - name: 1g.5gb
+             memory: 5120
+             count: 7
+         -
+           - name: 2g.10gb
+             memory: 10240
+             count: 3
+           - name: 1g.5gb
+             memory: 5120
+             count: 1
+         -
+           - name: 3g.20gb
+             memory: 20480
+             count: 2
+         -
+           - name: 7g.40gb
+             memory: 40960
+             count: 1
+     - models: [ "A100-SXM4-80GB", "A100-80GB-PCIe", "A100-PCIE-80GB"]
+       allowedGeometries:
+         -
+           - name: 1g.10gb
+             memory: 10240
+             count: 7
+         -
+           - name: 2g.20gb
+             memory: 20480
+             count: 3
+           - name: 1g.10gb
+             memory: 10240
+             count: 1
+         -
+           - name: 3g.40gb
+             memory: 40960
+             count: 2
+         -
+           - name: 7g.79gb
+             memory: 80896
+             count: 1
+   cambricon:
+     resourceCountName: cambricon.com/vmlu
+     resourceMemoryName: cambricon.com/mlu.smlu.vmemory
+     resourceCoreName: cambricon.com/mlu.smlu.vcore
+   hygon:
+     resourceCountName: hygon.com/dcunum
+     resourceMemoryName: hygon.com/dcumem
+     resourceCoreName: hygon.com/dcucores
+   metax:
+     resourceCountName: "metax-tech.com/gpu"
+     resourceVCountName: metax-tech.com/sgpu
+     resourceVMemoryName: metax-tech.com/vmemory
+     resourceVCoreName: metax-tech.com/vcore
+   enflame:
+     resourceCountName: "enflame.com/vgcu"
+     resourcePercentageName: "enflame.com/vgcu-percentage"
+   mthreads:
+     resourceCountName: "mthreads.com/vgpu"
+     resourceMemoryName: "mthreads.com/sgpu-memory"
+     resourceCoreName: "mthreads.com/sgpu-core"
+   iluvatar:
+     resourceCountName: iluvatar.ai/vgpu
+     resourceMemoryName: iluvatar.ai/vcuda-memory
+     resourceCoreName: iluvatar.ai/vcuda-core
+   vnpus:
+   - chipName: 910B
+     commonWord: Ascend910A
+     resourceName: huawei.com/Ascend910A
+     resourceMemoryName: huawei.com/Ascend910A-memory
+     memoryAllocatable: 32768
+     memoryCapacity: 32768
+     aiCore: 30
+     templates:
+       - name: vir02
+         memory: 2184
+         aiCore: 2
+       - name: vir04
+         memory: 4369
+         aiCore: 4
+       - name: vir08
+         memory: 8738
+         aiCore: 8
+       - name: vir16
+         memory: 17476
+         aiCore: 16
+   - chipName: 910B2
+     commonWord: Ascend910B2
+     resourceName: huawei.com/Ascend910B2
+     resourceMemoryName: huawei.com/Ascend910B2-memory
+     memoryAllocatable: 65536
+     memoryCapacity: 65536
+     aiCore: 24
+     aiCPU: 6
+     templates:
+       - name: vir03_1c_8g
+         memory: 8192
+         aiCore: 3
+         aiCPU: 1
+       - name: vir06_1c_16g
+         memory: 16384
+         aiCore: 6
+         aiCPU: 1
+       - name: vir12_3c_32g
+         memory: 32768
+         aiCore: 12
+         aiCPU: 3
+   - chipName: 910B3
+     commonWord: Ascend910B
+     resourceName: huawei.com/Ascend910B
+     resourceMemoryName: huawei.com/Ascend910B-memory
+     memoryAllocatable: 65536
+     memoryCapacity: 65536
+     aiCore: 20
+     aiCPU: 7
+     templates:
+       - name: vir05_1c_16g
+         memory: 16384
+         aiCore: 5
+         aiCPU: 1
+       - name: vir10_3c_32g
+         memory: 32768
+         aiCore: 10
+         aiCPU: 3
+   - chipName: 910B4
+     commonWord: Ascend910B4
+     resourceName: huawei.com/Ascend910B4
+     resourceMemoryName: huawei.com/Ascend910B4-memory
+     memoryAllocatable: 32768
+     memoryCapacity: 32768
+     aiCore: 20
+     aiCPU: 7
+     templates:
+       - name: vir05_1c_8g
+         memory: 8192
+         aiCore: 5
+         aiCPU: 1
+       - name: vir10_3c_16g
+         memory: 16384
+         aiCore: 10
+         aiCPU: 3
+   - chipName: 310P3
+     commonWord: Ascend310P
+     resourceName: huawei.com/Ascend310P
+     resourceMemoryName: huawei.com/Ascend310P-memory
+     memoryAllocatable: 21527
+     memoryCapacity: 24576
+     aiCore: 8
+     aiCPU: 7
+     templates:
+       - name: vir01
+         memory: 3072
+         aiCore: 1
+         aiCPU: 1
+       - name: vir02
+         memory: 6144
+         aiCore: 2
+         aiCPU: 2
+       - name: vir04
+         memory: 12288
+         aiCore: 4
+         aiCPU: 4
+*/
+
 type Config struct {
 	NvidiaConfig    nvidia.NvidiaConfig       `yaml:"nvidia"`
 	MetaxConfig     metax.MetaxConfig         `yaml:"metax"`
@@ -73,8 +268,9 @@ type Config struct {
 }
 
 var (
-	HandshakeAnnos  = map[string]string{}
-	RegisterAnnos   = map[string]string{}
+	HandshakeAnnos = map[string]string{}
+	RegisterAnnos  = map[string]string{}
+	// key为不同类型的设备，value为设备
 	devicesMap      map[string]Devices
 	DevicesToHandle []string
 	configFile      string
@@ -85,6 +281,7 @@ func GetDevices() map[string]Devices {
 	return devicesMap
 }
 
+// InitDevicesWithConfig 初始化各种类型的设备预分配设备注解，分配设备主机，以及握手注解使用的名字
 func InitDevicesWithConfig(config *Config) error {
 	if err := validateConfig(config); err != nil {
 		klog.Errorf("Invalid configuration: %v", err)
@@ -181,7 +378,7 @@ func InitDevicesWithConfig(config *Config) error {
 		initializeDevice(initializer.deviceType, initializer.commonWord, initializer.initFunc, initializer.config)
 	}
 
-	// Initialize Ascend devices
+	// Initialize Ascend devices 不同型号的昇腾设备的名字初始化
 	for _, dev := range ascend.InitDevices(config.VNPUs) {
 		commonWord := dev.CommonWord()
 		devicesMap[commonWord] = dev
@@ -404,6 +601,7 @@ func GlobalFlagSet() *flag.FlagSet {
 	enflame.ParseConfig(fs)
 	metax.ParseConfig(fs)
 	fs.BoolVar(&DebugMode, "debug", false, "Enable debug mode")
+	// 设备配置文件
 	fs.StringVar(&configFile, "device-config-file", "", "Path to the device config file")
 	klog.InitFlags(fs)
 	return fs
