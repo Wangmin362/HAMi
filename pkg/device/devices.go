@@ -552,6 +552,7 @@ vnpus:
 	}
 }
 
+// 当前Pod分配了
 func PodAllocationTrySuccess(nodeName string, devName string, lockName string, pod *corev1.Pod) {
 	refreshed, err := client.GetClient().CoreV1().Pods(pod.Namespace).Get(context.Background(), pod.Name, metav1.GetOptions{})
 	if err != nil {

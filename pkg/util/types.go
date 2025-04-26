@@ -23,13 +23,21 @@ import (
 const (
 	//ResourceName = "nvidia.com/gpu"
 	//ResourceName = "hami.io/vgpu".
+	// 1. 当一个Pod在执行hami-scheduler的Filter接口的时候，如果为这个Pod找到了一个合适的Node, 此时就会把需要绑定的节点写入
+	// hami.io/vgpu-node注解，并且把当前时间写入到hami.io/vgpu-time注解
 	AssignedTimeAnnotations = "hami.io/vgpu-time"
 	// AssignedNodeAnnotations
 	// 1. 当前一个Pod被hami调度之后，如果在Filter完成的时候找到了合适的Node，此时就会通过这个注解把选好的节点名写入到Pod上
 	// 2. 也就是说，只要一个Pod上被标记了这个注解，正常情况下都是hami设置的，说明这个Pod已经完成了hami调度
 	AssignedNodeAnnotations = "hami.io/vgpu-node"
-	BindTimeAnnotations     = "hami.io/bind-time"
-	DeviceBindPhase         = "hami.io/bind-phase"
+	// 1. 把一个Pod绑定到一个Node的时候会打上这个注解，实在hami-scheduler的binder接口上做的
+	// 2. 如果一个Pod没有被打上这个注解，说明这个Pod还没有真正调用hami-scheduler的binder接口绑定节点
+	BindTimeAnnotations = "hami.io/bind-time"
+	// 1. 目前有allocating, failed, success.
+	// 2. 如果一个Pod经过binder接口之后，就会被设置为allocating状态，此时还没有分配真正的卡，当kubelet调用allocate接口之后，就会分配
+	// 真正的卡，此时才会处于success状态
+	// 3. 当kubelet调用Allocate接口之后，如果设备分配成功，这个注解会被设置为success，如果设备分配失败，这个注解会被设置为failed
+	DeviceBindPhase = "hami.io/bind-phase"
 
 	DeviceBindAllocating = "allocating"
 	DeviceBindFailed     = "failed"

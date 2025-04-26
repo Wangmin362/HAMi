@@ -36,7 +36,7 @@ import (
 const (
 	// TODO 这个状态是怎么变化的
 	// 1. 对于nvidia设备类型，hami nvidia device-plugin会定期上报设备最新的状态，写入到hami.io/node-nvidia-register注解中，
-	// 与此同时，还会更新hami.io/node-handshake注解，用于表示当前节点已经完成了设备的上报，值为"Reported 2024-06-20 16:00:00"
+	// 与此同时，还会更新hami.io/node-handshake注解，用于表示当前节点已经完成了设备的上报，值类似"Reported 2024-06-20 16:00:00"
 	HandshakeAnnos = "hami.io/node-handshake"
 	// 1. 这个注解信息打在节点上，用于表示当前节点拥有的设备信息，这个信息是device-plugin插件打上的
 	RegisterAnnos       = "hami.io/node-nvidia-register"

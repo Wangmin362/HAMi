@@ -403,6 +403,12 @@ func (s *Scheduler) getPodUsage() (map[string]PodUseDeviceStat, error) {
 	return podUsageStat, nil
 }
 
+// Bind
+// 1. 获取当前要调度的Pod,获取当前Pod选好的Node，调用Bind接口绑定Pod到Node上
+// 2. 设置Pod的hami.io/bind-phase主机为allocating状态，当kubelet调用allocate接口之后，就会分配真正的卡，此时才会处于success状态
+// 3. 设置Pod的hami.io/bind-time注解，记录当前Pod被绑定到Node的时间
+// 4. 给当前节点上锁, 当kubelet调用allocate接口之后，会释放对应的锁
+// 5. 为当前的Pod对象生成一个绑定节点成功的事件
 func (s *Scheduler) Bind(args extenderv1.ExtenderBindingArgs) (*extenderv1.ExtenderBindingResult, error) {
 	klog.InfoS("Attempting to bind pod to node", "pod", args.PodName, "namespace", args.PodNamespace, "node", args.Node)
 	var res *extenderv1.ExtenderBindingResult
@@ -431,6 +437,7 @@ func (s *Scheduler) Bind(args extenderv1.ExtenderBindingArgs) (*extenderv1.Exten
 	}
 
 	for _, val := range device.GetDevices() {
+		// Q: 什么时候释放锁？ 在device-plugin当中会存在释放锁的逻辑
 		err = val.LockNode(node, current)
 		if err != nil {
 			klog.ErrorS(err, "Failed to lock node", "node", args.Node, "device", val)

@@ -33,6 +33,7 @@ type DCUDevices struct {
 }
 
 const (
+	// hami-scheduler会在node缓存中，定期检查节点，此时就会更新这个注解为类似这样的：hami.io/node-handshake-dcu: Requesting_2024.07.15 06:35:00
 	HandshakeAnnos     = "hami.io/node-handshake-dcu"
 	RegisterAnnos      = "hami.io/node-dcu-register"
 	HygonDCUDevice     = "DCU"
