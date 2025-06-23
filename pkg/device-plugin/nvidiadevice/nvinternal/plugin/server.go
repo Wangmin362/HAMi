@@ -100,6 +100,10 @@ type NvidiaDevicePlugin struct {
 }
 
 func readFromConfigFile(sConfig *nvidia.NvidiaConfig) (string, error) {
+	// TODO 这个配置文件怎么生成的？ 谁生成的？ 什么时间生成的？
+	/*
+		{"nodeconfig":[{"name":"rise-w6","operatingmode":"mig","devicememoryscaling":1,"devicecorescaling":1,"devicesplitcount":10,"migstrategy":"","deviceoverrides":{"GPU-0c503482-5075-21b5-f145-86e825ee1983":{"devicesplitcount":15,"devicememoryscaling":1,"devicecorescaling":1},"GPU-9bc37643-db3f-711c-dc87-01f2f773632c":{"devicesplitcount":15,"devicememoryscaling":1,"devicecorescaling":1}}},{"name":"rise-w3","operatingmode":"","devicememoryscaling":1,"devicecorescaling":1,"devicesplitcount":10,"migstrategy":"","deviceoverrides":{"GPU-f07a09ad-1dc7-f3ab-ead7-0de463ddcdc7":{"devicesplitcount":10,"devicememoryscaling":1,"devicecorescaling":1}}}]}
+	*/
 	jsonbyte, err := os.ReadFile("/config/config.json")
 	mode := "hami-core"
 	if err != nil {

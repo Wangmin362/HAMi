@@ -40,6 +40,7 @@ func NewPluginManager(config *nvidia.DeviceConfig) (manager.Interface, error) {
 
 	nvmllib := nvml.New()
 
+	// 这里配置的应该是查找英伟达设备的一种策略
 	deviceListStrategies, err := spec.NewDeviceListStrategies(*config.Flags.Plugin.DeviceListStrategy)
 	if err != nil {
 		return nil, fmt.Errorf("invalid device list strategy: %v", err)

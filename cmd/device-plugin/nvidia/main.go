@@ -184,7 +184,9 @@ func loadConfig(c *cli.Context, flags []cli.Flag) (*spec.Config, error) {
 func start(c *cli.Context, flags []cli.Flag) error {
 	klog.Info("Starting FS watcher.")
 	util.NodeName = os.Getenv(util.NodeNameEnvName)
+	// K8S客户端
 	client.InitGlobalClient()
+	// 监听/var/lib/kubelet/device-plugins/kubelet.sock文件，用于注册自己到kubelet
 	watcher, err := newFSWatcher(kubeletdevicepluginv1beta1.DevicePluginPath)
 	if err != nil {
 		return fmt.Errorf("failed to create FS watcher: %v", err)
@@ -195,6 +197,7 @@ func start(c *cli.Context, flags []cli.Flag) error {
 	/*Loading config files*/
 	klog.Infof("Start working on node %s", util.NodeName)
 	klog.Info("Starting OS watcher.")
+	// 监听系统信号，便于及时退出
 	sigs := newOSWatcher(syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
 	var restarting bool
@@ -210,6 +213,8 @@ restart:
 	}
 
 	klog.Info("Starting Plugins.")
+	// 1. 启动插件，这里的plugin并不是kubelet的DevicePlugin接口，而是英伟达自己的接口
+	// 2. 到了这里，其实插件已经启动了，后续的流程就是监听系统系统信号，及时停止插件并退出
 	plugins, restartPlugins, err := startPlugins(c, flags, restarting)
 	if err != nil {
 		return fmt.Errorf("error starting plugins: %v", err)
@@ -265,6 +270,7 @@ exit:
 	return nil
 }
 
+// TODO 英伟达的Device-plugin这里配置文件似乎有好几个可以影响，而且还有命令行参数
 func startPlugins(c *cli.Context, flags []cli.Flag, restarting bool) ([]plugin.Interface, bool, error) {
 	// Load the configuration file
 	klog.Info("Loading configuration.")
@@ -272,10 +278,47 @@ func startPlugins(c *cli.Context, flags []cli.Flag, restarting bool) ([]plugin.I
 	if err != nil {
 		return nil, false, fmt.Errorf("unable to load config: %v", err)
 	}
+	// 禁止资源重命名
 	disableResourceRenamingInConfig(config)
 
 	/*Loading config files*/
 	//fmt.Println("NodeName=", config.NodeName)
+	/* 大概长这样
+	{
+	  "version": "v1",
+	  "flags": {
+	    "migStrategy": "none",
+	    "failOnInitError": true,
+	    "nvidiaDriverRoot": "/",
+	    "gdsEnabled": false,
+	    "mofedEnabled": false,
+	    "useNodeFeatureAPI": null,
+	    "plugin": {
+	      "passDeviceSpecs": true,
+	      "deviceListStrategy": [
+	        "envvar"
+	      ],
+	      "deviceIDStrategy": "uuid",
+	      "cdiAnnotationPrefix": "cdi.k8s.io/",
+	      "nvidiaCTKPath": "/usr/bin/nvidia-ctk",
+	      "containerDriverRoot": "/driver-root"
+	    }
+	  },
+	  "resources": {
+	    "gpus": [
+	      {
+	        "pattern": "*",
+	        "name": "nvidia.com/gpu"
+	      }
+	    ]
+	  },
+	  "sharing": {
+	    "timeSlicing": {}
+	  },
+	  "ResourceName": "nvidia.com/gpu",
+	  "DebugMode": null
+	}
+	*/
 	devConfig, err := generateDeviceConfigFromNvidia(config, c, flags)
 	if err != nil {
 		klog.Errorf("failed to load config file %s", err.Error())
@@ -318,6 +361,7 @@ func startPlugins(c *cli.Context, flags []cli.Flag, restarting bool) ([]plugin.I
 		}
 
 		// Start the gRPC server for plugin p and connect it with the kubelet.
+		// 这里才是真正的启动DevicePlugin插件的地方
 		if err := p.Start(); err != nil {
 			klog.Error("Could not contact Kubelet. Did you enable the device plugin feature gate?")
 			klog.Error("You can check the prerequisites at: https://github.com/NVIDIA/k8s-device-plugin#prerequisites")
