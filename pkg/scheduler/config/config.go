@@ -16,11 +16,16 @@ limitations under the License.
 
 package config
 
-import "github.com/Project-HAMi/HAMi/pkg/util"
+import (
+	"time"
+
+	"github.com/Project-HAMi/HAMi/pkg/util"
+)
 
 var (
 	QPS                float32
 	Burst              int
+	Timeout            int
 	HTTPBind           string
 	SchedulerName      string
 	MetricsBindAddress string
@@ -36,4 +41,7 @@ var (
 
 	// NodeLabelSelector is scheduler filter node by node label.
 	NodeLabelSelector map[string]string
+
+	// NodeLockTimeout is the timeout for node locks.
+	NodeLockTimeout time.Duration
 )

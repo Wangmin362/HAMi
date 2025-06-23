@@ -29,35 +29,25 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/klog/v2"
 
+	"github.com/Project-HAMi/HAMi/pkg/device/common"
 	"github.com/Project-HAMi/HAMi/pkg/util"
 	"github.com/Project-HAMi/HAMi/pkg/util/nodelock"
 )
 
 const (
-	// TODO 这个状态是怎么变化的
-	// 1. 对于nvidia设备类型，hami nvidia device-plugin会定期上报设备最新的状态，写入到hami.io/node-nvidia-register注解中，
-	// 与此同时，还会更新hami.io/node-handshake注解，用于表示当前节点已经完成了设备的上报，值类似"Reported 2024-06-20 16:00:00"
-	HandshakeAnnos = "hami.io/node-handshake"
-	// 1. 这个注解信息打在节点上，用于表示当前节点拥有的设备信息，这个信息是device-plugin插件打上的
-	RegisterAnnos       = "hami.io/node-nvidia-register"
-	NvidiaGPUDevice     = "NVIDIA"
-	NvidiaGPUCommonWord = "GPU"
-	// 用户通过申明这个注解来指定使用的GPU设备类型
-	GPUInUse = "nvidia.com/use-gputype"
-	// 用户通过申明这个注解来指定不使用的GPU设备类型
-	GPUNoUse = "nvidia.com/nouse-gputype"
-	// 用户通过这个注解申明Pod需要使用NUMA特性
-	NumaBind       = "nvidia.com/numa-bind"
-	NodeLockNvidia = "hami.io/mutex.lock"
+	HandshakeAnnos       = "hami.io/node-handshake"
+	RegisterAnnos        = "hami.io/node-nvidia-register"
+	RegisterGPUPairScore = "hami.io/node-nvidia-score"
+	NvidiaGPUDevice      = "NVIDIA"
+	NvidiaGPUCommonWord  = "GPU"
+	GPUInUse             = "nvidia.com/use-gputype"
+	GPUNoUse             = "nvidia.com/nouse-gputype"
+	NumaBind             = "nvidia.com/numa-bind"
+	NodeLockNvidia       = "hami.io/mutex.lock"
 	// GPUUseUUID is user can use specify GPU device for set GPU UUID.
-	// 用户通过这个注解指定需要使用的GPU设备的UUID
-	// 例如：nvidia.com/use-gpuuuid: "GPU-12345678-1234-1234-1234-123456789012"
 	GPUUseUUID = "nvidia.com/use-gpuuuid"
 	// GPUNoUseUUID is user can not use specify GPU device for set GPU UUID.
-	// 用户通过这个注解指定不使用的GPU设备的UUID
-	// 例如：nvidia.com/nouse-gpuuuid: "GPU-12345678-1234-1234-1234-123456789012"
 	GPUNoUseUUID = "nvidia.com/nouse-gpuuuid"
-	// TODO 可以指定哪些模式？
 	AllocateMode = "nvidia.com/vgpu-mode"
 
 	MigMode      = "mig"
@@ -99,6 +89,15 @@ const (
 	DisableCorePolicy GPUCoreUtilizationPolicy = "disable"
 )
 
+type LibCudaLogLevel string
+
+const (
+	Error    LibCudaLogLevel = "0"
+	Warnings LibCudaLogLevel = "1"
+	Infos    LibCudaLogLevel = "3"
+	Debugs   LibCudaLogLevel = "4"
+)
+
 type NvidiaConfig struct {
 	ResourceCountName            string  `yaml:"resourceCountName"`
 	ResourceMemoryName           string  `yaml:"resourceMemoryName"`
@@ -112,11 +111,15 @@ type NvidiaConfig struct {
 	DeviceSplitCount             uint    `yaml:"deviceSplitCount"`
 	DeviceMemoryScaling          float64 `yaml:"deviceMemoryScaling"`
 	DeviceCoreScaling            float64 `yaml:"deviceCoreScaling"`
-	// TODO 这个参数是否应该直接移除
+	// TODO Whether these should be removed
 	DisableCoreLimit  bool                        `yaml:"disableCoreLimit"`
 	MigGeometriesList []util.AllowedMigGeometries `yaml:"knownMigGeometries"`
 	// GPUCorePolicy through webhook automatic injected to container env
 	GPUCorePolicy GPUCoreUtilizationPolicy `yaml:"gpuCorePolicy"`
+	// RuntimeClassName is the name of the runtime class to be added to pod.spec.runtimeClassName
+	RuntimeClassName string `yaml:"runtimeClassName"`
+	// LogLevel is LIBCUDA_LOG_LEVEL value
+	LogLevel LibCudaLogLevel `yaml:"libCudaLogLevel"`
 }
 
 type FilterDevice struct {
@@ -231,14 +234,11 @@ func (dev *NvidiaGPUDevices) ReleaseNodeLock(n *corev1.Node, p *corev1.Pod) erro
 	return nodelock.ReleaseNodeLock(n.Name, NodeLockNvidia, p, false)
 }
 
-// GetNodeDevices 通过类似hami.io/node-nvidia-register的注解，获取当前节点注册上来的设备信息
 func (dev *NvidiaGPUDevices) GetNodeDevices(n corev1.Node) ([]*util.DeviceInfo, error) {
-	// 通过注解，获取当前节点注册上来的设备信息
 	devEncoded, ok := n.Annotations[RegisterAnnos]
 	if !ok {
 		return []*util.DeviceInfo{}, errors.New("annos not found " + RegisterAnnos)
 	}
-	// 通过Node注解反序列化节点的设备信息
 	nodedevices, err := util.DecodeNodeDevices(devEncoded)
 	if err != nil {
 		klog.ErrorS(err, "failed to decode node devices", "node", n.Name, "device annotation", devEncoded)
@@ -249,7 +249,7 @@ func (dev *NvidiaGPUDevices) GetNodeDevices(n corev1.Node) ([]*util.DeviceInfo, 
 		return []*util.DeviceInfo{}, errors.New("no gpu found on node")
 	}
 	for _, val := range nodedevices {
-		if val.Mode == "mig" {
+		if val.Mode == MigMode {
 			val.MIGTemplate = make([]util.Geometry, 0)
 			for _, migTemplates := range dev.config.MigGeometriesList {
 				found := false
@@ -289,9 +289,28 @@ func (dev *NvidiaGPUDevices) MutateAdmission(ctr *corev1.Container, p *corev1.Po
 		})
 	}
 
+	hasResource := dev.mutateContainerResource(ctr)
+
+	if hasResource {
+		// Set runtime class name if it is not set by user and the runtime class name is configured
+		if p.Spec.RuntimeClassName == nil && dev.config.RuntimeClassName != "" {
+			p.Spec.RuntimeClassName = &dev.config.RuntimeClassName
+		}
+	}
+
+	if !hasResource && dev.config.OverwriteEnv {
+		ctr.Env = append(ctr.Env, corev1.EnvVar{
+			Name:  "NVIDIA_VISIBLE_DEVICES",
+			Value: "none",
+		})
+	}
+	return hasResource, nil
+}
+
+func (dev *NvidiaGPUDevices) mutateContainerResource(ctr *corev1.Container) bool {
 	_, resourceNameOK := ctr.Resources.Limits[corev1.ResourceName(dev.config.ResourceCountName)]
 	if resourceNameOK {
-		return resourceNameOK, nil
+		return true
 	}
 
 	_, resourceCoresOK := ctr.Resources.Limits[corev1.ResourceName(dev.config.ResourceCoreName)]
@@ -301,17 +320,10 @@ func (dev *NvidiaGPUDevices) MutateAdmission(ctr *corev1.Container, p *corev1.Po
 	if resourceCoresOK || resourceMemOK || resourceMemPercentageOK {
 		if dev.config.DefaultGPUNum > 0 {
 			ctr.Resources.Limits[corev1.ResourceName(dev.config.ResourceCountName)] = *resource.NewQuantity(int64(dev.config.DefaultGPUNum), resource.BinarySI)
-			resourceNameOK = true
+			return true
 		}
 	}
-
-	if !resourceNameOK && dev.config.OverwriteEnv {
-		ctr.Env = append(ctr.Env, corev1.EnvVar{
-			Name:  "NVIDIA_VISIBLE_DEVICES",
-			Value: "none",
-		})
-	}
-	return resourceNameOK, nil
+	return false
 }
 
 func checkGPUtype(annos map[string]string, cardtype string) bool {
@@ -336,7 +348,7 @@ func checkGPUtype(annos map[string]string, cardtype string) bool {
 }
 
 func assertNuma(annos map[string]string) bool {
-	numabind, ok := annos[NumaBind] // nvidia.com/numa-bind
+	numabind, ok := annos[NumaBind]
 	if ok {
 		enforce, err := strconv.ParseBool(numabind)
 		if err == nil && enforce {
@@ -346,19 +358,19 @@ func assertNuma(annos map[string]string) bool {
 	return false
 }
 
-func (dev *NvidiaGPUDevices) CheckType(annos map[string]string, d util.DeviceUsage, n util.ContainerDeviceRequest) (bool, bool, bool) {
-	Typecheck := checkGPUtype(annos, d.Type)
-	mode, ok := annos[AllocateMode] // nvidia.com/vgpu-mode
+func (dev *NvidiaGPUDevices) checkType(annos map[string]string, d util.DeviceUsage, n util.ContainerDeviceRequest) (bool, bool) {
+	typeCheck := checkGPUtype(annos, d.Type)
+	mode, ok := annos[AllocateMode]
 	if ok && !strings.Contains(mode, d.Mode) {
-		Typecheck = false
+		typeCheck = false
 	}
 	if strings.Compare(n.Type, NvidiaGPUDevice) == 0 {
-		return true, Typecheck, assertNuma(annos)
+		return typeCheck, assertNuma(annos)
 	}
-	return false, false, false
+	return false, false
 }
 
-func (dev *NvidiaGPUDevices) CheckUUID(annos map[string]string, d util.DeviceUsage) bool {
+func (dev *NvidiaGPUDevices) checkUUID(annos map[string]string, d util.DeviceUsage) bool {
 	userUUID, ok := annos[GPUUseUUID]
 	if ok {
 		klog.V(5).Infof("check uuid for nvidia user uuid [%s], device id is %s", userUUID, d.ID)
@@ -378,7 +390,7 @@ func (dev *NvidiaGPUDevices) CheckUUID(annos map[string]string, d util.DeviceUsa
 	return true
 }
 
-func (dev *NvidiaGPUDevices) PatchAnnotations(annoinput *map[string]string, pd util.PodDevices) map[string]string {
+func (dev *NvidiaGPUDevices) PatchAnnotations(pod *corev1.Pod, annoinput *map[string]string, pd util.PodDevices) map[string]string {
 	devlist, ok := pd[NvidiaGPUDevice]
 	if ok && len(devlist) > 0 {
 		deviceStr := util.EncodePodSingleDevice(devlist)
@@ -460,7 +472,7 @@ func (dev *NvidiaGPUDevices) CustomFilterRule(allocated *util.PodDevices, reques
 		UsageList: make(util.MIGS, 0),
 	}
 	deviceUsageCurrent.UsageList = append(deviceUsageCurrent.UsageList, deviceUsageSnapshot.UsageList...)
-	if device.Mode == "mig" {
+	if device.Mode == MigMode {
 		if len(deviceUsageCurrent.UsageList) == 0 {
 			tmpfound := false
 			for tidx, templates := range device.MigTemplate {
@@ -503,7 +515,7 @@ func (dev *NvidiaGPUDevices) CustomFilterRule(allocated *util.PodDevices, reques
 	return true
 }
 
-func (dev *NvidiaGPUDevices) ScoreNode(node *corev1.Node, podDevices util.PodSingleDevice, policy string) float32 {
+func (dev *NvidiaGPUDevices) ScoreNode(node *corev1.Node, podDevices util.PodSingleDevice, previous []*util.DeviceUsage, policy string) float32 {
 	return 0
 }
 
@@ -520,9 +532,9 @@ func (dev *NvidiaGPUDevices) migNeedsReset(n *util.DeviceUsage) bool {
 	return true
 }
 
-func (dev *NvidiaGPUDevices) AddResourceUsage(n *util.DeviceUsage, ctr *util.ContainerDevice) error {
+func (dev *NvidiaGPUDevices) AddResourceUsage(pod *corev1.Pod, n *util.DeviceUsage, ctr *util.ContainerDevice) error {
 	n.Used++
-	if n.Mode == "mig" {
+	if n.Mode == MigMode {
 		if dev.migNeedsReset(n) {
 			for tidx, templates := range n.MigTemplate {
 				if templates[0].Memory < ctr.Usedmem {
@@ -559,4 +571,109 @@ func (dev *NvidiaGPUDevices) AddResourceUsage(n *util.DeviceUsage, ctr *util.Con
 	n.Usedcores += ctr.Usedcores
 	n.Usedmem += ctr.Usedmem
 	return nil
+}
+
+func (nv *NvidiaGPUDevices) Fit(devices []*util.DeviceUsage, request util.ContainerDeviceRequest, annos map[string]string, pod *corev1.Pod, allocated *util.PodDevices) (bool, map[string]util.ContainerDevices, string) {
+	k := request
+	originReq := k.Nums
+	prevnuma := -1
+	klog.InfoS("Allocating device for container request", "pod", klog.KObj(pod), "card request", k)
+	var tmpDevs map[string]util.ContainerDevices
+	tmpDevs = make(map[string]util.ContainerDevices)
+	reason := make(map[string]int)
+	for i := len(devices) - 1; i >= 0; i-- {
+		dev := devices[i]
+		klog.V(4).InfoS("scoring pod", "pod", klog.KObj(pod), "device", dev.ID, "Memreq", k.Memreq, "MemPercentagereq", k.MemPercentagereq, "Coresreq", k.Coresreq, "Nums", k.Nums, "device index", i)
+
+		found, numa := nv.checkType(annos, *dev, k)
+		if !found {
+			reason[common.CardTypeMismatch]++
+			klog.V(5).InfoS(common.CardTypeMismatch, "pod", klog.KObj(pod), "device", dev.ID, dev.Type, k.Type)
+			continue
+		}
+		if numa && prevnuma != dev.Numa {
+			if k.Nums != originReq {
+				reason[common.NumaNotFit] += len(tmpDevs)
+				klog.V(5).InfoS(common.NumaNotFit, "pod", klog.KObj(pod), "device", dev.ID, "k.nums", k.Nums, "numa", numa, "prevnuma", prevnuma, "device numa", dev.Numa)
+			}
+			k.Nums = originReq
+			prevnuma = dev.Numa
+			tmpDevs = make(map[string]util.ContainerDevices)
+		}
+		if !nv.checkUUID(annos, *dev) {
+			reason[common.CardUUIDMismatch]++
+			klog.V(5).InfoS(common.CardUUIDMismatch, "pod", klog.KObj(pod), "device", dev.ID, "current device info is:", *dev)
+			continue
+		}
+
+		memreq := int32(0)
+		if dev.Count <= dev.Used {
+			reason[common.CardTimeSlicingExhausted]++
+			klog.V(5).InfoS(common.CardTimeSlicingExhausted, "pod", klog.KObj(pod), "device", dev.ID, "count", dev.Count, "used", dev.Used)
+			continue
+		}
+		if k.Coresreq > 100 {
+			klog.ErrorS(nil, "core limit can't exceed 100", "pod", klog.KObj(pod), "device", dev.ID)
+			k.Coresreq = 100
+			//return false, tmpDevs
+		}
+		if k.Memreq > 0 {
+			memreq = k.Memreq
+		}
+		if k.MemPercentagereq != 101 && k.Memreq == 0 {
+			//This incurs an issue
+			memreq = dev.Totalmem * k.MemPercentagereq / 100
+		}
+		if dev.Totalmem-dev.Usedmem < memreq {
+			reason[common.CardInsufficientMemory]++
+			klog.V(5).InfoS(common.CardInsufficientMemory, "pod", klog.KObj(pod), "device", dev.ID, "device index", i, "device total memory", dev.Totalmem, "device used memory", dev.Usedmem, "request memory", memreq)
+			continue
+		}
+		if dev.Totalcore-dev.Usedcores < k.Coresreq {
+			reason[common.CardInsufficientCore]++
+			klog.V(5).InfoS(common.CardInsufficientCore, "pod", klog.KObj(pod), "device", dev.ID, "device index", i, "device total core", dev.Totalcore, "device used core", dev.Usedcores, "request cores", k.Coresreq)
+			continue
+		}
+		// Coresreq=100 indicates it want this card exclusively
+		if dev.Totalcore == 100 && k.Coresreq == 100 && dev.Used > 0 {
+			reason[common.ExclusiveDeviceAllocateConflict]++
+			klog.V(5).InfoS(common.ExclusiveDeviceAllocateConflict, "pod", klog.KObj(pod), "device", dev.ID, "device index", i, "used", dev.Used)
+			continue
+		}
+		// You can't allocate core=0 job to an already full GPU
+		if dev.Totalcore != 0 && dev.Usedcores == dev.Totalcore && k.Coresreq == 0 {
+			reason[common.CardComputeUnitsExhausted]++
+			klog.V(5).InfoS(common.CardComputeUnitsExhausted, "pod", klog.KObj(pod), "device", dev.ID, "device index", i)
+			continue
+		}
+		if !nv.CustomFilterRule(allocated, request, tmpDevs[k.Type], dev) {
+			reason[common.CardNotFoundCustomFilterRule]++
+			klog.V(5).InfoS(common.CardNotFoundCustomFilterRule, "pod", klog.KObj(pod), "device", dev.ID, "device index", i)
+			continue
+		}
+
+		if k.Nums > 0 {
+			klog.V(5).InfoS("find fit device", "pod", klog.KObj(pod), "device", dev.ID)
+			k.Nums--
+			tmpDevs[k.Type] = append(tmpDevs[k.Type], util.ContainerDevice{
+				Idx:       int(dev.Index),
+				UUID:      dev.ID,
+				Type:      k.Type,
+				Usedmem:   memreq,
+				Usedcores: k.Coresreq,
+			})
+		}
+		if k.Nums == 0 {
+			klog.V(4).InfoS("device allocate success", "pod", klog.KObj(pod), "allocate device", tmpDevs)
+			return true, tmpDevs, ""
+		}
+		if dev.Mode == "mig" {
+			i++
+		}
+	}
+	if len(tmpDevs) > 0 {
+		reason[common.AllocatedCardsInsufficientRequest] = len(tmpDevs)
+		klog.V(5).InfoS(common.AllocatedCardsInsufficientRequest, "pod", klog.KObj(pod), "request", originReq, "allocated", len(tmpDevs))
+	}
+	return false, tmpDevs, common.GenReason(reason, len(devices))
 }

@@ -49,6 +49,14 @@ data:
                     },
                     {{- end }}
                     {{- end }}
+                    {{- if .Values.devices.kunlun.enabled }}
+                    {{- range .Values.devices.kunlun.customresources }}
+                    {
+                      "name": "{{ . }}",
+                      "ignoredByScheduler": true
+                    },
+                    {{- end }}
+                    {{- end }}
                     {
                         "name": "{{ .Values.resourceName }}",
                         "ignoredByScheduler": true
@@ -87,6 +95,10 @@ data:
                     },
                     {
                         "name": "{{ .Values.iluvatarResourceName }}",
+                        "ignoredByScheduler": true
+                    },
+                    {
+                        "name": "metax-tech.com/gpu",
                         "ignoredByScheduler": true
                     },
                     {

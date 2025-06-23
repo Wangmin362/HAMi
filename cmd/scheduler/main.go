@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/pprof"
+	"time"
 
 	"github.com/julienschmidt/httprouter"
 	"github.com/spf13/cobra"
@@ -32,6 +33,7 @@ import (
 	"github.com/Project-HAMi/HAMi/pkg/util"
 	"github.com/Project-HAMi/HAMi/pkg/util/client"
 	"github.com/Project-HAMi/HAMi/pkg/util/flag"
+	"github.com/Project-HAMi/HAMi/pkg/util/nodelock"
 	"github.com/Project-HAMi/HAMi/pkg/version"
 )
 
@@ -60,26 +62,20 @@ func init() {
 	rootCmd.Flags().StringVar(&tlsCertFile, "cert_file", "", "tls cert file")
 	rootCmd.Flags().StringVar(&tlsKeyFile, "key_file", "", "tls key file")
 	rootCmd.Flags().StringVar(&config.SchedulerName, "scheduler-name", "", "the name to be added to pod.spec.schedulerName if not empty")
-	// 设备限制的显存，默认不限制。
 	rootCmd.Flags().Int32Var(&config.DefaultMem, "default-mem", 0, "default gpu device memory to allocate")
-	// 算力限制，默认不限制。
 	rootCmd.Flags().Int32Var(&config.DefaultCores, "default-cores", 0, "default gpu core percentage to allocate")
-	// GPU数量限制，默认数量为1。
 	rootCmd.Flags().Int32Var(&config.DefaultResourceNum, "default-gpu", 1, "default gpu to allocate")
-	// 节点调度策略，默认为Binpack。
 	rootCmd.Flags().StringVar(&config.NodeSchedulerPolicy, "node-scheduler-policy", util.NodeSchedulerPolicyBinpack.String(), "node scheduler policy")
-	// GPU调度策略，默认为Spread。
 	rootCmd.Flags().StringVar(&config.GPUSchedulerPolicy, "gpu-scheduler-policy", util.GPUSchedulerPolicySpread.String(), "GPU scheduler policy")
 	rootCmd.Flags().StringVar(&config.MetricsBindAddress, "metrics-bind-address", ":9395", "The TCP address that the scheduler should bind to for serving prometheus metrics(e.g. 127.0.0.1:9395, :9395)")
-	// TODO 这里的节点标签是啥？是部署的节点标签还是调度的节点标签？
 	rootCmd.Flags().StringToStringVar(&config.NodeLabelSelector, "node-label-selector", nil, "key=value pairs separated by commas")
-	// add QPS and Burst to the global flagset
-	// qps and burst settings for the client-go client
-	rootCmd.Flags().Float32Var(&config.QPS, "kube-qps", 5.0, "QPS to use while talking with kube-apiserver.")
-	rootCmd.Flags().IntVar(&config.Burst, "kube-burst", 10, "Burst to use while talking with kube-apiserver.")
-	// Add profiling related flags
+
+	rootCmd.Flags().Float32Var(&config.QPS, "kube-qps", client.DefaultQPS, "QPS to use while talking with kube-apiserver.")
+	rootCmd.Flags().IntVar(&config.Burst, "kube-burst", client.DefaultBurst, "Burst to use while talking with kube-apiserver.")
+	rootCmd.Flags().IntVar(&config.Timeout, "kube-timeout", client.DefaultTimeout, "Timeout to use while talking with kube-apiserver.")
 	rootCmd.Flags().BoolVar(&enableProfiling, "profiling", false, "Enable pprof profiling via HTTP server")
-	// 各种类型设备的配置
+	rootCmd.Flags().DurationVar(&config.NodeLockTimeout, "node-lock-timeout", time.Minute*5, "timeout for node locks")
+
 	rootCmd.PersistentFlags().AddGoFlagSet(device.GlobalFlagSet())
 	rootCmd.AddCommand(version.VersionCmd)
 	rootCmd.Flags().AddGoFlagSet(util.InitKlogFlags())
@@ -106,17 +102,21 @@ func injectProfilingRoute(router *httprouter.Router) {
 }
 
 func start() error {
-	// 初始化K8S客户端
-	client.InitGlobalClient(client.WithBurst(config.Burst), client.WithQPS(config.QPS))
-	// 初始化不同芯片的设备配置，初始化各种类型的设备预分配设备注解，分配设备主机，以及握手注解使用的名字
+	// Initialize node lock timeout from config
+	nodelock.NodeLockTimeout = config.NodeLockTimeout
+	klog.InfoS("Set node lock timeout", "timeout", nodelock.NodeLockTimeout)
+	client.InitGlobalClient(
+		client.WithBurst(config.Burst),
+		client.WithQPS(config.QPS),
+		client.WithTimeout(config.Timeout),
+	)
+
 	device.InitDevices()
 	sher = scheduler.NewScheduler()
-	// 通过Pod， Node缓存
 	sher.Start()
 	defer sher.Stop()
 
 	// start monitor metrics
-	// 根据节点的注解信息获取当前节点的设备，并且根据节点上所有Pod申请的资源信息可以汇总出当前节点的使用信息
 	go sher.RegisterFromNodeAnnotations()
 	go initMetrics(config.MetricsBindAddress)
 

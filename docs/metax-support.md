@@ -17,8 +17,8 @@ device-sharing features include the following:
 
 ### Prerequisites
 
-* Metax Driver >= 2.31.0
-* Metax GPU Operator >= 0.10.1
+* Metax Driver >= 2.32.0
+* Metax GPU Operator >= 0.10.2
 * Kubernetes >= 1.23
 
 ### Enabling GPU-sharing Support
@@ -40,7 +40,7 @@ metadata:
 spec:
   containers:
     - name: ubuntu-container
-      image: cr.metax-tech.com/public-ai-release/c500/colossalai:2.24.0.5-py38-ubuntu20.04-amd64 
+      image: ubuntu:22.04 
       imagePullPolicy: IfNotPresent
       command: ["sleep","infinity"]
       resources:

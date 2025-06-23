@@ -44,6 +44,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	spec "github.com/NVIDIA/k8s-device-plugin/api/config/v1"
@@ -87,6 +88,12 @@ type NvidiaDevicePlugin struct {
 	socket               string
 	schedulerConfig      nvidia.NvidiaConfig
 
+	applyMutex                 sync.Mutex
+	disableHealthChecks        chan bool
+	ackDisableHealthChecks     chan bool
+	disableWatchAndRegister    chan bool
+	ackDisableWatchAndRegister chan bool
+
 	cdiHandler          cdi.Interface
 	cdiEnabled          bool
 	cdiAnnotationPrefix string
@@ -100,10 +107,6 @@ type NvidiaDevicePlugin struct {
 }
 
 func readFromConfigFile(sConfig *nvidia.NvidiaConfig) (string, error) {
-	// TODO 这个配置文件怎么生成的？ 谁生成的？ 什么时间生成的？
-	/*
-		{"nodeconfig":[{"name":"rise-w6","operatingmode":"mig","devicememoryscaling":1,"devicecorescaling":1,"devicesplitcount":10,"migstrategy":"","deviceoverrides":{"GPU-0c503482-5075-21b5-f145-86e825ee1983":{"devicesplitcount":15,"devicememoryscaling":1,"devicecorescaling":1},"GPU-9bc37643-db3f-711c-dc87-01f2f773632c":{"devicesplitcount":15,"devicememoryscaling":1,"devicecorescaling":1}}},{"name":"rise-w3","operatingmode":"","devicememoryscaling":1,"devicecorescaling":1,"devicesplitcount":10,"migstrategy":"","deviceoverrides":{"GPU-f07a09ad-1dc7-f3ab-ead7-0de463ddcdc7":{"devicesplitcount":10,"devicememoryscaling":1,"devicecorescaling":1}}}]}
-	*/
 	jsonbyte, err := os.ReadFile("/config/config.json")
 	mode := "hami-core"
 	if err != nil {
@@ -164,17 +167,22 @@ func NewNvidiaDevicePlugin(config *nvidia.DeviceConfig, resourceManager rm.Resou
 		klog.Fatalf("failed to initialize devices: %v", err)
 	}
 	return &NvidiaDevicePlugin{
-		rm:                   resourceManager,
-		config:               config,
-		deviceListEnvvar:     "NVIDIA_VISIBLE_DEVICES",
-		deviceListStrategies: deviceListStrategies,
-		socket:               kubeletdevicepluginv1beta1.DevicePluginPath + "nvidia-" + name + ".sock",
-		cdiHandler:           cdiHandler,
-		cdiEnabled:           cdiEnabled,
-		cdiAnnotationPrefix:  *config.Flags.Plugin.CDIAnnotationPrefix,
-		schedulerConfig:      sConfig.NvidiaConfig,
-		operatingMode:        mode,
-		migCurrent:           nvidia.MigPartedSpec{},
+		rm:                         resourceManager,
+		config:                     config,
+		deviceListEnvvar:           "NVIDIA_VISIBLE_DEVICES",
+		deviceListStrategies:       deviceListStrategies,
+		applyMutex:                 sync.Mutex{},
+		disableHealthChecks:        nil,
+		ackDisableHealthChecks:     nil,
+		disableWatchAndRegister:    nil,
+		ackDisableWatchAndRegister: nil,
+		socket:                     kubeletdevicepluginv1beta1.DevicePluginPath + "nvidia-" + name + ".sock",
+		cdiHandler:                 cdiHandler,
+		cdiEnabled:                 cdiEnabled,
+		cdiAnnotationPrefix:        *config.Flags.Plugin.CDIAnnotationPrefix,
+		schedulerConfig:            sConfig.NvidiaConfig,
+		operatingMode:              mode,
+		migCurrent:                 nvidia.MigPartedSpec{},
 
 		// These will be reinitialized every
 		// time the plugin server is restarted.
@@ -188,6 +196,10 @@ func (plugin *NvidiaDevicePlugin) initialize() {
 	plugin.server = grpc.NewServer([]grpc.ServerOption{}...)
 	plugin.health = make(chan *rm.Device)
 	plugin.stop = make(chan any)
+	plugin.disableHealthChecks = make(chan bool, 1)
+	plugin.ackDisableHealthChecks = make(chan bool, 1)
+	plugin.disableWatchAndRegister = make(chan bool, 1)
+	plugin.ackDisableWatchAndRegister = make(chan bool, 1)
 }
 
 func (plugin *NvidiaDevicePlugin) cleanup() {
@@ -195,6 +207,10 @@ func (plugin *NvidiaDevicePlugin) cleanup() {
 	plugin.server = nil
 	plugin.health = nil
 	plugin.stop = nil
+	plugin.disableHealthChecks = nil
+	plugin.ackDisableHealthChecks = nil
+	plugin.disableWatchAndRegister = nil
+	plugin.ackDisableWatchAndRegister = nil
 }
 
 // Devices returns the full set of devices associated with the plugin.
@@ -227,6 +243,19 @@ func (plugin *NvidiaDevicePlugin) Start() error {
 		return err
 	}
 	klog.Infof("Registered device plugin for '%s' with Kubelet", plugin.rm.Resource())
+	// Prepare the lock file sub directory.Due to the sequence of startup processes, both the device plugin
+	// and the vGPU monitor should attempt to create this directory by default to ensure its creation.
+	err = CreateMigApplyLockDir()
+	if err != nil {
+		klog.Fatalf("CreateMIGLockSubDir failed:%v", err)
+	}
+
+	// If the temporary lock file still exists, it may be a leftover from the last incomplete mig  application process.
+	// Delete the temporary lock file to make sure vgpu monitor can start.
+	err = RemoveMigApplyLock()
+	if err != nil {
+		klog.Fatalf("RemoveMigApplyLock failed:%v", err)
+	}
 
 	if plugin.operatingMode == "mig" {
 		cmd := exec.Command("nvidia-mig-parted", "export")
@@ -240,27 +269,23 @@ func (plugin *NvidiaDevicePlugin) Start() error {
 		outStr := stdout.Bytes()
 		yaml.Unmarshal(outStr, &plugin.migCurrent)
 		os.WriteFile("/tmp/migconfig.yaml", outStr, os.ModePerm)
-		if len(plugin.migCurrent.MigConfigs["current"]) == 1 && len(plugin.migCurrent.MigConfigs["current"][0].Devices) == 0 {
-			idx := 0
-			plugin.migCurrent.MigConfigs["current"][0].Devices = make([]int32, 0)
-			for idx < deviceNumbers {
-				plugin.migCurrent.MigConfigs["current"][0].Devices = append(plugin.migCurrent.MigConfigs["current"][0].Devices, int32(idx))
-				idx++
-			}
+
+		HamiInitMigConfig, err := plugin.processMigConfigs(plugin.migCurrent.MigConfigs, deviceNumbers)
+		if err != nil {
+			klog.Infof("no device in node:%v", err)
 		}
+		plugin.migCurrent.MigConfigs["current"] = HamiInitMigConfig
 		klog.Infoln("Mig export", plugin.migCurrent)
 	}
 	go func() {
-		err := plugin.rm.CheckHealth(plugin.stop, plugin.health)
+		err := plugin.rm.CheckHealth(plugin.stop, plugin.health, plugin.disableHealthChecks, plugin.ackDisableHealthChecks)
 		if err != nil {
 			klog.Infof("Failed to start health check: %v; continuing with health checks disabled", err)
 		}
 	}()
 
 	go func() {
-		// 1. 通过NVML获取当前设备的信息，然后注册到节点的注解当中: hami.io/node-handshake,hami.io/node-nvidia-register
-		// 2. 每隔30秒上报一次设备信息
-		plugin.WatchAndRegister()
+		plugin.WatchAndRegister(plugin.disableWatchAndRegister, plugin.ackDisableWatchAndRegister)
 	}()
 
 	return nil
@@ -466,6 +491,9 @@ func (plugin *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *kubeletdev
 				response.Envs["CUDA_DEVICE_MEMORY_SHARED_CACHE"] = fmt.Sprintf("%s/vgpu/%v.cache", hostHookPath, uuid.New().String())
 				if plugin.schedulerConfig.DeviceMemoryScaling > 1 {
 					response.Envs["CUDA_OVERSUBSCRIBE"] = "true"
+				}
+				if plugin.schedulerConfig.LogLevel != "" {
+					response.Envs["LIBCUDA_LOG_LEVEL"] = string(plugin.schedulerConfig.LogLevel)
 				}
 				if plugin.schedulerConfig.DisableCoreLimit {
 					response.Envs[util.CoreLimitSwitch] = "disable"
@@ -684,4 +712,48 @@ func (plugin *NvidiaDevicePlugin) apiDeviceSpecs(driverRoot string, ids []string
 	}
 
 	return specs
+}
+
+func (plugin *NvidiaDevicePlugin) processMigConfigs(migConfigs map[string]nvidia.MigConfigSpecSlice, deviceCount int) (nvidia.MigConfigSpecSlice, error) {
+	if migConfigs == nil {
+		return nil, fmt.Errorf("migConfigs cannot be nil")
+	}
+	if deviceCount <= 0 {
+		return nil, fmt.Errorf("deviceCount must be positive")
+	}
+
+	transformConfigs := func() (nvidia.MigConfigSpecSlice, error) {
+		var result nvidia.MigConfigSpecSlice
+
+		if len(migConfigs["current"]) == 1 && len(migConfigs["current"][0].Devices) == 0 {
+			for i := 0; i < deviceCount; i++ {
+				config := deepCopyMigConfig(migConfigs["current"][0])
+				config.Devices = []int32{int32(i)}
+				result = append(result, config)
+			}
+			return result, nil
+		}
+
+		deviceToConfig := make(map[int32]*nvidia.MigConfigSpec)
+		for i := range migConfigs["current"] {
+			for _, device := range migConfigs["current"][i].Devices {
+				deviceToConfig[device] = &migConfigs["current"][i]
+			}
+		}
+
+		for i := 0; i < deviceCount; i++ {
+			deviceIndex := int32(i)
+			config, exists := deviceToConfig[deviceIndex]
+			if !exists {
+				return nil, fmt.Errorf("device %d does not match any MIG configuration", i)
+			}
+			newConfig := deepCopyMigConfig(*config)
+			newConfig.Devices = []int32{deviceIndex}
+			result = append(result, newConfig)
+
+		}
+		return result, nil
+	}
+
+	return transformConfigs()
 }

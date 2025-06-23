@@ -359,7 +359,8 @@ func Test_Filter(t *testing.T) {
 		}
 
 		s.addNode("node1", &util.NodeInfo{
-			ID: "node1",
+			ID:   "node1",
+			Node: &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node1"}},
 			Devices: []util.DeviceInfo{
 				{
 					ID:           "device1",
@@ -387,7 +388,8 @@ func Test_Filter(t *testing.T) {
 			},
 		})
 		s.addNode("node2", &util.NodeInfo{
-			ID: "node2",
+			ID:   "node2",
+			Node: &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node2"}},
 			Devices: []util.DeviceInfo{
 				{
 					ID:      "device3",
@@ -632,6 +634,10 @@ func Test_RegisterFromNodeAnnotations(t *testing.T) {
 				node := &corev1.Node{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "node",
+						Annotations: map[string]string{
+							"hami.io/node-handshake":     "Requesting_2025-06-13 09:07:40",
+							"hami.io/node-handshake-dcu": "Requesting_2025-06-13 09:07:40",
+						},
 					},
 				}
 				_, err := client.KubeClient.CoreV1().Nodes().Create(context.TODO(), node, metav1.CreateOptions{})
