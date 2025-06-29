@@ -61,21 +61,31 @@ func init() {
 	rootCmd.Flags().StringVar(&config.HTTPBind, "http_bind", "127.0.0.1:8080", "http server bind address")
 	rootCmd.Flags().StringVar(&tlsCertFile, "cert_file", "", "tls cert file")
 	rootCmd.Flags().StringVar(&tlsKeyFile, "key_file", "", "tls key file")
+	// 调度器名字
 	rootCmd.Flags().StringVar(&config.SchedulerName, "scheduler-name", "", "the name to be added to pod.spec.schedulerName if not empty")
+	// 默认分配的内存
 	rootCmd.Flags().Int32Var(&config.DefaultMem, "default-mem", 0, "default gpu device memory to allocate")
+	// 默认分配的算力
 	rootCmd.Flags().Int32Var(&config.DefaultCores, "default-cores", 0, "default gpu core percentage to allocate")
+	// 默认分配的gpu数量
 	rootCmd.Flags().Int32Var(&config.DefaultResourceNum, "default-gpu", 1, "default gpu to allocate")
+	// 节点调度策略，目前支持：binpack，spread， 默认是binpack，尽量减少节点资源碎片化
 	rootCmd.Flags().StringVar(&config.NodeSchedulerPolicy, "node-scheduler-policy", util.NodeSchedulerPolicyBinpack.String(), "node scheduler policy")
+	// GPU调度策略，目前支持：binpack，spread， 默认是spread，尽量优先把任务分配到节点上的不同的GPU，优先把每隔GPU都利用起来
 	rootCmd.Flags().StringVar(&config.GPUSchedulerPolicy, "gpu-scheduler-policy", util.GPUSchedulerPolicySpread.String(), "GPU scheduler policy")
+	// HAMI指标端口
 	rootCmd.Flags().StringVar(&config.MetricsBindAddress, "metrics-bind-address", ":9395", "The TCP address that the scheduler should bind to for serving prometheus metrics(e.g. 127.0.0.1:9395, :9395)")
+	// 节点标签选择器，用于过滤节点 TODO 这个作用在什么时候
 	rootCmd.Flags().StringToStringVar(&config.NodeLabelSelector, "node-label-selector", nil, "key=value pairs separated by commas")
 
 	rootCmd.Flags().Float32Var(&config.QPS, "kube-qps", client.DefaultQPS, "QPS to use while talking with kube-apiserver.")
 	rootCmd.Flags().IntVar(&config.Burst, "kube-burst", client.DefaultBurst, "Burst to use while talking with kube-apiserver.")
 	rootCmd.Flags().IntVar(&config.Timeout, "kube-timeout", client.DefaultTimeout, "Timeout to use while talking with kube-apiserver.")
 	rootCmd.Flags().BoolVar(&enableProfiling, "profiling", false, "Enable pprof profiling via HTTP server")
+	// TODO 是否存在什么隐患？
 	rootCmd.Flags().DurationVar(&config.NodeLockTimeout, "node-lock-timeout", time.Minute*5, "timeout for node locks")
 
+	// 主要是各种不同设备的Count名称，算力名称，显存名称的初始化
 	rootCmd.PersistentFlags().AddGoFlagSet(device.GlobalFlagSet())
 	rootCmd.AddCommand(version.VersionCmd)
 	rootCmd.Flags().AddGoFlagSet(util.InitKlogFlags())
@@ -103,14 +113,17 @@ func injectProfilingRoute(router *httprouter.Router) {
 
 func start() error {
 	// Initialize node lock timeout from config
+	// 节点锁的超时时间，即如果5分钟内，若一个任务没有释放锁  TODO 那么会强制释放锁
 	nodelock.NodeLockTimeout = config.NodeLockTimeout
 	klog.InfoS("Set node lock timeout", "timeout", nodelock.NodeLockTimeout)
+	// K8S Client客户端初始化
 	client.InitGlobalClient(
 		client.WithBurst(config.Burst),
 		client.WithQPS(config.QPS),
 		client.WithTimeout(config.Timeout),
 	)
 
+	// 通过/device-config.yaml配置文件，初始化各种芯片的Count，算力，显存资源使用的名字
 	device.InitDevices()
 	sher = scheduler.NewScheduler()
 	sher.Start()

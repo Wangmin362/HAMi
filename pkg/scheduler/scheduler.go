@@ -68,7 +68,9 @@ func NewScheduler() *Scheduler {
 		cachedstatus: make(map[string]*NodeUsage),
 		nodeNotify:   make(chan struct{}, 1),
 	}
+	// 与其说是一个nodeManager, 其实倒不如说是个nodeCache， 这个nodeCache主要是用来保存节点信息的
 	s.nodeManager = newNodeManager()
+	// pod缓存
 	s.podManager = newPodManager()
 	klog.V(2).InfoS("Scheduler initialized successfully")
 	return s
@@ -124,11 +126,13 @@ func (s *Scheduler) Start() {
 	s.podLister = informerFactory.Core().V1().Pods().Lister()
 	s.nodeLister = informerFactory.Core().V1().Nodes().Lister()
 
+	// 监听Pod的变化
 	informerFactory.Core().V1().Pods().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    s.onAddPod,
 		UpdateFunc: s.onUpdatePod,
 		DeleteFunc: s.onDelPod,
 	})
+	// 监听Node的变化
 	informerFactory.Core().V1().Nodes().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    func(_ any) { s.doNodeNotify() },
 		UpdateFunc: func(_, _ any) { s.doNodeNotify() },

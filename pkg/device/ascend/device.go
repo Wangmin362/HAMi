@@ -97,6 +97,7 @@ func InitDevices(config []VNPUConfig) []*Devices {
 }
 
 func ParseConfig(fs *flag.FlagSet) {
+	// TODO 如果为false，结果会怎样？
 	fs.BoolVar(&enableAscend, "enable-ascend", false, "enable ascend device")
 }
 

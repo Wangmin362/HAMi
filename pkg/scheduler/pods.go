@@ -32,8 +32,9 @@ type podInfo struct {
 	Name      string
 	UID       k8stypes.UID
 	NodeID    string
-	Devices   util.PodDevices // 当前Pod使用的设备信息，通过解析注解获取
-	CtrIDs    []string
+	// TODO 对于非自己写的DP，如何获取Pod分配的设备信息？
+	Devices util.PodDevices // 当前Pod使用的设备信息，通过解析注解获取
+	CtrIDs  []string
 }
 
 // PodUseDeviceStat counts pod use device info.
@@ -43,6 +44,7 @@ type PodUseDeviceStat struct {
 }
 
 type podManager struct {
+	// key为Pod的UID，value为PodInfo信息
 	pods  map[k8stypes.UID]*podInfo
 	mutex sync.RWMutex
 }

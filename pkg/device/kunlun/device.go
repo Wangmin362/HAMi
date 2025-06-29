@@ -65,6 +65,7 @@ func (dev *KunlunDevices) CommonWord() string {
 }
 
 func ParseConfig(fs *flag.FlagSet) {
+	// TODO 为什么昆仑新没有增加相关的算力名称以及显存名称
 	fs.StringVar(&KunlunResourceCount, "kunlun-name", "kunlunxin.com/xpu", "kunlunxin resource count")
 }
 

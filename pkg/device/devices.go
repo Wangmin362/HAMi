@@ -407,6 +407,7 @@ func InitDevices() {
 		klog.Info("Devices are already initialized, skipping initialization")
 		return
 	}
+	// 一般配置为：/device-config.yaml
 	klog.Infof("Loading device configuration from file: %s", configFile)
 	config, err := LoadConfig(configFile)
 	if err != nil {

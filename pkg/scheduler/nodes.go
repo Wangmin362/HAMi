@@ -35,17 +35,22 @@ type NodeUsage struct {
 }
 
 type nodeManager struct {
+	// key为NodeID, value为NodeInfo信息
 	nodes map[string]*util.NodeInfo
 	mutex sync.RWMutex
 }
 
+// 与其说是一个nodeManager, 其实倒不如说是个nodeCache， 这个nodeCache主要是用来保存节点信息的，
 func newNodeManager() *nodeManager {
 	return &nodeManager{
 		nodes: make(map[string]*util.NodeInfo),
 	}
 }
 
+// 外面通过SharedInformer机制监听到节点变化之后，会通过这个方法把节点信息保存在nodeManager中，
 func (m *nodeManager) addNode(nodeID string, nodeInfo *util.NodeInfo) {
+	// 如果一个节点没有发现任何设备，将会被直接忽略
+	// fixme 这里是否应该增加日志，方便排查问题
 	if nodeInfo == nil || len(nodeInfo.Devices) == 0 {
 		return
 	}
@@ -53,16 +58,19 @@ func (m *nodeManager) addNode(nodeID string, nodeInfo *util.NodeInfo) {
 	defer m.mutex.Unlock()
 	_, ok := m.nodes[nodeID]
 	if ok {
-		// TODO 下面应该主要是在更新设备信息
+		// TODO 之所以存在下面的逻辑，我估计更多的处于一个节点存在多种不同类型的设备的情况
 		if len(nodeInfo.Devices) > 0 {
 			tmp := make([]util.DeviceInfo, 0, len(nodeInfo.Devices))
 			devices := device.GetDevices()
 			deviceType := ""
+			// TODO 下面这一块逻辑是在干嘛？ 没有看的很懂
 			for _, val := range devices {
 				if strings.Contains(nodeInfo.Devices[0].Type, val.CommonWord()) {
 					deviceType = val.CommonWord()
+					// fixme 这里是否能够直接跳出？
 				}
 			}
+			// TODO 这里似乎是为了解决一个节点上有多种不同类型的设备的情况
 			for _, val := range m.nodes[nodeID].Devices {
 				if !strings.Contains(val.Type, deviceType) {
 					tmp = append(tmp, val)
@@ -87,6 +95,7 @@ func (m *nodeManager) rmNodeDevices(nodeID string, deviceVendor string) {
 		return
 	}
 
+	// 删除指定设备之后，剩余的设备
 	devices := make([]util.DeviceInfo, 0)
 	for _, val := range nodeInfo.Devices {
 		if val.DeviceVendor != deviceVendor { // 删除指定设备类型的设备，保留其它类型的设备
