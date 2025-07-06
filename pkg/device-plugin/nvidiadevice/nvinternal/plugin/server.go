@@ -72,7 +72,13 @@ const (
 
 var (
 	hostHookPath string
-	ConfigFile   *string
+	// ConfigFile 其实就是下面这个, 在初始化的过程中会被config-file参数赋值
+	// ConfigFile = cli.StringFlag{
+	//	Name:  "config-file",
+	//	Usage: "Path to the device plugin configuration file",
+	//	Value: "/etc/nvidia-device-plugin/config.yaml",
+	// }
+	ConfigFile *string
 )
 
 func init() {
@@ -143,10 +149,12 @@ func readFromConfigFile(sConfig *nvidia.NvidiaConfig) (string, error) {
 }
 
 func LoadNvidiaDevicePluginConfig() (*device.Config, string, error) {
+	// 加载config-file参数配置指向的配置文件
 	sConfig, err := device.LoadConfig(*ConfigFile)
 	if err != nil {
 		klog.Fatalf(`failed to load device config file %s: %v`, *ConfigFile, err)
 	}
+	// 目前模式支持hami-core, mig
 	mode, err := readFromConfigFile(&sConfig.NvidiaConfig)
 	if err != nil {
 		klog.Errorf("readFromConfigFile err:%s", err.Error())
@@ -163,6 +171,7 @@ func NewNvidiaDevicePlugin(config *nvidia.DeviceConfig, resourceManager rm.Resou
 	klog.Infoln("reading config=", config, "resourceName", config.ResourceName, "configfile=", *ConfigFile, "sconfig=", sConfig)
 
 	// Initialize devices with configuration
+	// 初始化各种类型的设备预分配设备注解，分配设备主机，以及握手注解使用的名字
 	if err := device.InitDevicesWithConfig(sConfig); err != nil {
 		klog.Fatalf("failed to initialize devices: %v", err)
 	}

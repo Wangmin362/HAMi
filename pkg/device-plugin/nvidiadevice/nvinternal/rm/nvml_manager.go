@@ -61,6 +61,7 @@ func NewNVMLResourceManagers(nvmllib nvml.Interface, config *nvidia.DeviceConfig
 		}
 	}()
 
+	// 调用底层驱动获取GPU设备，并实现TimeSlicing功能，即一个GPU显卡上报多个设备
 	deviceMap, err := NewDeviceMap(nvmllib, config)
 	if err != nil {
 		return nil, fmt.Errorf("error building device map: %v", err)

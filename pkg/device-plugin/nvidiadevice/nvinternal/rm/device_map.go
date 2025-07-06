@@ -51,6 +51,7 @@ type deviceMapBuilder struct {
 type DeviceMap map[spec.ResourceName]Devices
 
 // NewDeviceMap creates a device map for the specified NVML library and config.
+// 调用底层驱动获取GPU设备，并实现TimeSlicing功能，即一个GPU显卡上报多个设备
 func NewDeviceMap(nvmllib nvml.Interface, config *nvidia.DeviceConfig) (DeviceMap, error) {
 	b := deviceMapBuilder{
 		Interface: device.New(device.WithNvml(nvmllib)),
@@ -61,10 +62,12 @@ func NewDeviceMap(nvmllib nvml.Interface, config *nvidia.DeviceConfig) (DeviceMa
 
 // build builds a map of resource names to devices.
 func (b *deviceMapBuilder) build() (DeviceMap, error) {
+	// 通过调用底层驱动加载显卡设备
 	devices, err := b.buildDeviceMapFromConfigResources()
 	if err != nil {
 		return nil, fmt.Errorf("error building device map from config.resources: %v", err)
 	}
+	// TimeSlicing原理
 	devices, err = updateDeviceMapWithReplicas(b.config, devices)
 	if err != nil {
 		return nil, fmt.Errorf("error updating device map with replicas from config.sharing.timeSlicing.resources: %v", err)
@@ -79,6 +82,7 @@ func (b *deviceMapBuilder) buildDeviceMapFromConfigResources() (DeviceMap, error
 		return nil, fmt.Errorf("error building GPU device map: %v", err)
 	}
 
+	// 如果是None模式直接返回，如果是其它模式还需要加载其它模式的卡
 	if *b.config.Flags.MigStrategy == spec.MigStrategyNone {
 		return deviceMap, nil
 	}
@@ -89,6 +93,7 @@ func (b *deviceMapBuilder) buildDeviceMapFromConfigResources() (DeviceMap, error
 	}
 
 	var requireUniformMIGDevices bool
+	// 如果是Single模式，需要检查所有的设备是否是同一种类型的MIG卡
 	if *b.config.Flags.MigStrategy == spec.MigStrategySingle {
 		requireUniformMIGDevices = true
 	}
@@ -108,6 +113,7 @@ func (b *deviceMapBuilder) buildDeviceMapFromConfigResources() (DeviceMap, error
 }
 
 // buildGPUDeviceMap builds a map of resource names to GPU devices
+// 调用底层驱动获取显卡设备
 func (b *deviceMapBuilder) buildGPUDeviceMap() (DeviceMap, error) {
 	devices := make(DeviceMap)
 
@@ -135,6 +141,7 @@ func (b *deviceMapBuilder) buildGPUDeviceMap() (DeviceMap, error) {
 }
 
 // buildMigDeviceMap builds a map of resource names to MIG devices
+// 通过底层驱动加载MIG设备
 func (b *deviceMapBuilder) buildMigDeviceMap() (DeviceMap, error) {
 	devices := make(DeviceMap)
 	err := b.VisitMigDevices(func(i int, d device.Device, j int, mig device.MigDevice) error {
@@ -321,6 +328,7 @@ func updateDeviceMapWithReplicas(config *nvidia.DeviceConfig, oDevices DeviceMap
 			name = r.Rename
 		}
 		for _, id := range ids {
+			// TimeSlicing原理
 			for i := range r.Replicas {
 				annotatedID := string(NewAnnotatedID(id, i))
 				replicatedDevice := *(oDevices[r.Name][id])

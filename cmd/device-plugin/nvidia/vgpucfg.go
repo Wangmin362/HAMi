@@ -104,13 +104,14 @@ func generateDeviceConfigFromNvidia(cfg *spec.Config, c *cli.Context, flags []cl
 	klog.Infoln("flags=", flags)
 	for _, flag := range flags {
 		for _, n := range flag.Names() {
-			// Common flags
+			// Common flags 通过config-file命令行配置，更新ConfigFile变量
 			if strings.Compare(n, "config-file") == 0 {
 				updateFromCLIFlag(&plugin.ConfigFile, c, n)
 			}
 		}
 	}
 
+	// 加载配置
 	config, err := device.LoadConfig(*plugin.ConfigFile)
 	if err != nil {
 		klog.Fatalf("failed to load ascend vnpu config file %s: %v", *plugin.ConfigFile, err)

@@ -73,6 +73,7 @@ func New(opts ...Option) (Interface, error) {
 		m.cdiHandler = cdi.NewNullHandler()
 	}
 
+	// 通过加载libnvidia-ml.so.1库文件的方式，判断当前平台到底是NVML还是Tegra平台
 	mode, err := m.resolveMode()
 	if err != nil {
 		return nil, err
@@ -103,6 +104,7 @@ func New(opts ...Option) (Interface, error) {
 		}
 		defer m.nvmllib.Shutdown()
 
+		// 实例化NVML管理器
 		return (*nvmlmanager)(m), nil
 	case "tegra":
 		return (*tegramanager)(m), nil
@@ -113,6 +115,7 @@ func New(opts ...Option) (Interface, error) {
 	return nil, fmt.Errorf("unknown mode: %v", mode)
 }
 
+// 通过加载libnvidia-ml.so.1库文件的方式，判断当前平台到底是NVML还是Tegra平台
 func (m *manager) resolveMode() (string, error) {
 	// logWithReason logs the output of the has* / is* checks from the info.Interface
 	logWithReason := func(f func() (bool, string), tag string) bool {

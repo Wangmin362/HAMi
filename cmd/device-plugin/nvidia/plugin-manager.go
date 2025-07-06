@@ -48,6 +48,7 @@ func NewPluginManager(config *nvidia.DeviceConfig) (manager.Interface, error) {
 
 	cdiEnabled := deviceListStrategies.IsCDIEnabled()
 
+	// CDI处理器，一种全新的机制，用于标准化挂载设备文件
 	cdiHandler, err := cdi.New(
 		cdi.WithEnabled(cdiEnabled),
 		cdi.WithDriverRoot(*config.Flags.Plugin.ContainerDriverRoot),

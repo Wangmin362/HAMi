@@ -73,6 +73,7 @@ func main() {
 
 	c.Flags = []cli.Flag{
 		&cli.StringFlag{
+			// TODO 这个参数有啥用？
 			Name:    "mig-strategy",
 			Value:   spec.MigStrategyNone,
 			Usage:   "the desired strategy for exposing MIG devices on GPUs that support it:\n\t\t[none | single | mixed]",
@@ -91,18 +92,22 @@ func main() {
 			EnvVars: []string{"NVIDIA_DRIVER_ROOT"},
 		},
 		&cli.BoolFlag{
+			// TODO 有啥用？
 			Name:    "pass-device-specs",
 			Value:   false,
 			Usage:   "pass the list of DeviceSpecs to the kubelet on Allocate()",
 			EnvVars: []string{"PASS_DEVICE_SPECS"},
 		},
 		&cli.StringSliceFlag{
+			// TODO 发现设备的一种你策略，似乎英伟达支持四种方式发现设备
+			// TODO 这四种方式的区别是什么？ 每一种方式的使用场景是啥？
 			Name:    "device-list-strategy",
 			Value:   cli.NewStringSlice(string(spec.DeviceListStrategyEnvvar)),
 			Usage:   "the desired strategy for passing the device list to the underlying runtime:\n\t\t[envvar | volume-mounts | cdi-annotations]",
 			EnvVars: []string{"DEVICE_LIST_STRATEGY"},
 		},
 		&cli.StringFlag{
+			// TODO 期望传递给底层运行时的设备ID策略，有两种策略：uuid和index
 			Name:    "device-id-strategy",
 			Value:   spec.DeviceIDStrategyUUID,
 			Usage:   "the desired strategy for passing device IDs to the underlying runtime:\n\t\t[uuid | index]",
@@ -119,6 +124,7 @@ func main() {
 			EnvVars: []string{"MOFED_ENABLED"},
 		},
 		&cli.StringFlag{
+			// 以配置文件的方式设置参数，优先级比命令行的优先级高
 			Name:        "config-file",
 			Usage:       "the path to a config file as an alternative to command line options or environment variables",
 			Destination: &configFile,
@@ -168,6 +174,43 @@ func validateFlags(config *spec.Config) error {
 	return nil
 }
 
+// TODO 通过config-file参数加载英伟达原生GPU配置参数
+/* 大概长这样
+{
+  "version": "v1",
+  "flags": {
+    "migStrategy": "none",
+    "failOnInitError": true,
+    "nvidiaDriverRoot": "/",
+    "gdsEnabled": false,
+    "mofedEnabled": false,
+    "useNodeFeatureAPI": null,
+    "plugin": {
+      "passDeviceSpecs": true,
+      "deviceListStrategy": [
+        "envvar"
+      ],
+      "deviceIDStrategy": "uuid",
+      "cdiAnnotationPrefix": "cdi.k8s.io/",
+      "nvidiaCTKPath": "/usr/bin/nvidia-ctk",
+      "containerDriverRoot": "/driver-root"
+    }
+  },
+  "resources": {
+    "gpus": [
+      {
+        "pattern": "*",
+        "name": "nvidia.com/gpu"
+      }
+    ]
+  },
+  "sharing": {
+    "timeSlicing": {}
+  },
+  "ResourceName": "nvidia.com/gpu",
+  "DebugMode": null
+}
+*/
 func loadConfig(c *cli.Context, flags []cli.Flag) (*spec.Config, error) {
 	config, err := spec.NewConfig(c, flags)
 	if err != nil {
@@ -183,6 +226,7 @@ func loadConfig(c *cli.Context, flags []cli.Flag) (*spec.Config, error) {
 
 func start(c *cli.Context, flags []cli.Flag) error {
 	klog.Info("Starting FS watcher.")
+	// 所以YAML中需要设置NODE_NAME环境变量
 	util.NodeName = os.Getenv(util.NodeNameEnvName)
 	// K8S客户端
 	client.InitGlobalClient()
@@ -239,6 +283,7 @@ restart:
 		// 'kubeletdevicepluginv1beta1.KubeletSocket' file. When this occurs, restart this loop,
 		// restarting all of the plugins in the process.
 		case event := <-watcher.Events:
+			// 如果监听到重新创建了KubeletSocket文件，那么重启DevicePlugin
 			if event.Name == kubeletdevicepluginv1beta1.KubeletSocket && event.Op&fsnotify.Create == fsnotify.Create {
 				klog.Infof("inotify: %s created, restarting.", kubeletdevicepluginv1beta1.KubeletSocket)
 				goto restart
@@ -319,6 +364,7 @@ func startPlugins(c *cli.Context, flags []cli.Flag, restarting bool) ([]plugin.I
 	  "DebugMode": null
 	}
 	*/
+	// 从命令行参数config-file中加载配置
 	devConfig, err := generateDeviceConfigFromNvidia(config, c, flags)
 	if err != nil {
 		klog.Errorf("failed to load config file %s", err.Error())
@@ -327,6 +373,7 @@ func startPlugins(c *cli.Context, flags []cli.Flag, restarting bool) ([]plugin.I
 
 	// Update the configuration file with default resources.
 	klog.Info("Updating config with default resource matching patterns.")
+	// 通过MigStrategy的配置的不同添加不同的资源匹配规则
 	err = rm.AddDefaultResourcesToConfig(&devConfig)
 	if err != nil {
 		return nil, false, fmt.Errorf("unable to add default resources to config: %v", err)
