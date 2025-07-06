@@ -232,6 +232,7 @@ func (plugin *NvidiaDevicePlugin) Devices() rm.Devices {
 func (plugin *NvidiaDevicePlugin) Start() error {
 	plugin.initialize()
 
+	// 调用底层驱动获取GPU数量
 	deviceNumbers, err := GetDeviceNums()
 	if err != nil {
 		return err
