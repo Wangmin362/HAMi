@@ -89,6 +89,7 @@ func (dev *CambriconDevices) CommonWord() string {
 	return CambriconMLUCommonWord
 }
 
+// TODO 为什么不写一个通用方法设置节点锁
 func (dev *CambriconDevices) setNodeLock(node *corev1.Node) error {
 	ctx := context.Background()
 	if _, ok := node.Annotations[DsmluLockTime]; ok {
@@ -120,6 +121,7 @@ func (dev *CambriconDevices) setNodeLock(node *corev1.Node) error {
 
 func (dev *CambriconDevices) LockNode(n *corev1.Node, p *corev1.Pod) error {
 	found := false
+	// 只有当前Pod使用了寒武纪的设备才需要加锁
 	for _, val := range p.Spec.Containers {
 		if (dev.GenerateResourceRequests(&val).Nums) > 0 {
 			found = true
@@ -136,6 +138,8 @@ func (dev *CambriconDevices) LockNode(n *corev1.Node, p *corev1.Pod) error {
 	if err != nil {
 		return err
 	}
+	// 已经存在所，并且已经超过两分钟，就要释放锁。Pod的调度是很快的，不可能那么慢。从调度器调度完成到Kubelet调用Allocate函数，一般在10s内
+	// 不会经历那么久的时间
 	if time.Since(lockTime) > time.Minute*2 {
 		klog.InfoS("Node lock expired", "node", n.Name, "lockTime", lockTime)
 		err = dev.ReleaseNodeLock(n, p)
@@ -152,6 +156,7 @@ func (dev *CambriconDevices) ReleaseNodeLock(n *corev1.Node, p *corev1.Pod) erro
 	if n.Annotations == nil {
 		return nil
 	}
+	// 锁不存在，直接返回
 	if _, ok := n.Annotations[DsmluLockTime]; !ok {
 		klog.InfoS("Node lock not set", "node", n.Name)
 		return nil
@@ -174,13 +179,16 @@ func (dev *CambriconDevices) ReleaseNodeLock(n *corev1.Node, p *corev1.Pod) erro
 }
 
 func (dev *CambriconDevices) NodeCleanUp(nn string) error {
+	// 之所以没有清理节点，是因为寒武纪的DP并不是HAMI写的，寒武纪DP并不会在节点上写握手时间
 	return nil
 }
 
 func (dev *CambriconDevices) CheckHealth(devType string, n *corev1.Node) (bool, bool) {
+	// 同理，HAMI节点的健康检查也是基于节点握手注解的，第三方DP并没有上报握手信息，因此无法检测健康状态
 	return true, true
 }
 
+// TODO 如果一个集群中有两种寒武纪的设备，应该如何处理
 func (dev *CambriconDevices) GetNodeDevices(n corev1.Node) ([]*util.DeviceInfo, error) {
 	nodedevices := []*util.DeviceInfo{}
 	i := 0
@@ -214,6 +222,7 @@ func (dev *CambriconDevices) MutateAdmission(ctr *corev1.Container, p *corev1.Po
 	return ok, nil
 }
 
+// TODO 因该重构这个函数，明确返回值的意义
 func (dev *CambriconDevices) checkType(annos map[string]string, d util.DeviceUsage, n util.ContainerDeviceRequest) (bool, bool, bool) {
 	if strings.Compare(n.Type, CambriconMLUDevice) == 0 {
 		return true, true, false
@@ -221,6 +230,7 @@ func (dev *CambriconDevices) checkType(annos map[string]string, d util.DeviceUsa
 	return false, false, false
 }
 
+// 检查当前容器是否指定了需要使用芯片的UUID，以及不想使用芯片的UUID
 func (dev *CambriconDevices) checkUUID(annos map[string]string, d util.DeviceUsage) bool {
 	userUUID, ok := annos[MLUUseUUID]
 	if ok {
@@ -240,6 +250,7 @@ func (dev *CambriconDevices) checkUUID(annos map[string]string, d util.DeviceUsa
 	return true
 }
 
+// 从容器上解析申请的容器
 func (dev *CambriconDevices) GenerateResourceRequests(ctr *corev1.Container) util.ContainerDeviceRequest {
 	klog.Info("Start to count mlu devices for container ", ctr.Name)
 	mluResourceCount := corev1.ResourceName(MLUResourceCount)
@@ -248,6 +259,7 @@ func (dev *CambriconDevices) GenerateResourceRequests(ctr *corev1.Container) uti
 	for idx, val := range ctr.Resources.Limits {
 		klog.Infoln("idx=", idx, "val=", val, ctr.Resources.Limits[mluResourceMem])
 	}
+	// 申请的数量
 	v, ok := ctr.Resources.Limits[mluResourceCount]
 	if !ok {
 		v, ok = ctr.Resources.Requests[mluResourceCount]
@@ -300,6 +312,7 @@ func (dev *CambriconDevices) GenerateResourceRequests(ctr *corev1.Container) uti
 }
 
 func (dev *CambriconDevices) PatchAnnotations(pod *corev1.Pod, annoinput *map[string]string, pd util.PodDevices) map[string]string {
+	// 获取分配的寒武纪设备
 	devlist, ok := pd[CambriconMLUDevice]
 	if ok {
 		(*annoinput)[DsmluResourceAssigned] = "false"
@@ -314,6 +327,7 @@ func (dev *CambriconDevices) PatchAnnotations(pod *corev1.Pod, annoinput *map[st
 	return *annoinput
 }
 
+// TODO 为什么这里不需要给节点打分
 func (dev *CambriconDevices) ScoreNode(node *corev1.Node, podDevices util.PodSingleDevice, previous []*util.DeviceUsage, policy string) float32 {
 	return 0
 }

@@ -80,6 +80,7 @@ func (h *webhook) Handle(_ context.Context, req admission.Request) admission.Res
 				klog.Errorf("validating pod failed:%s", err.Error())
 				return admission.Errored(http.StatusInternalServerError, err)
 			}
+			// 只要发现了任何一种HAMI管理的设备，调度器名字就会被修改为HAMI
 			hasResource = hasResource || found
 		}
 	}

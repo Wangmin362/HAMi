@@ -47,13 +47,18 @@ import (
 type Devices interface {
 	// CommonWord 芯片类型，不同的芯片有不同的类型
 	CommonWord() string
-	// MutateAdmission Webhook中会调用这个函数，主要用于根据芯片的特点对Pod资源的申请做一些椒盐，甚至修改动作
+	// MutateAdmission Webhook中会调用这个函数，主要用于根据芯片的特点对Pod资源做校验，判断是否是当前管理的芯片。甚至修改动作
 	MutateAdmission(ctr *corev1.Container, pod *corev1.Pod) (bool, error)
 	// CheckHealth 检查当前节点是否健康,一般是通过节点的握手注解获取到的信息
+	// 如果当前芯片类型的DP不是由HAMI提供的，那么无法获取节点的健康信息。因为健康信息是基于节点握手注解来的，第三方DP并没有上报握手注解
 	CheckHealth(devType string, n *corev1.Node) (healthy bool, needUpdate bool)
 	// 节点的握手信息设置为Delete_xxx_xxx
 	NodeCleanUp(nn string) error
-	// GetNodeDevices 从节点注解获取设备信息, 因此DP在上报的时候就需要当前芯片的类型上报合适的注解上来，表明当前节点的设备信息
+	// GetNodeDevices
+	// 1. 从节点注解获取设备信息, 因此DP在上报的时候就需要当前芯片的类型上报合适的注解上来，表明当前节点的设备信息
+	// 2. 获取节点上的设备一般有两种实现，一种是通过节点的注解信息获取，这种情况一般是HAMI自己实现的DP，这种情况下获取的设备信息i比较丰富，譬如
+	// 内存，算力，支持的TimeSlice数量，健康状态等等。另外一种是直接从节点的NodeStatus中获取，这种一般是第三方的DP，因为第三方DP并没有上报
+	// 设备信息到节点注解上。所以只能通过最基础的方式从节点状态中获取。本质上就是Kubelet通过ListAndWatch获取到的的设备信息。
 	GetNodeDevices(n corev1.Node) ([]*util.DeviceInfo, error)
 	// LockNode 给节点添加锁，当前调度器分配完成之后，会给节点加锁，表明自己当前需要给这个Pod分配设备信息，后续Kubelet调用DP Allocate接口分配设备的时候需要解锁
 	LockNode(n *corev1.Node, p *corev1.Pod) error

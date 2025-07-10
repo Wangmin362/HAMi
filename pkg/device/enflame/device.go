@@ -86,6 +86,7 @@ func (dev *EnflameDevices) MutateAdmission(ctr *corev1.Container, p *corev1.Pod)
 	count, ok := ctr.Resources.Limits[corev1.ResourceName(EnflameResourceCount)]
 	if ok {
 		if count.Value() > 1 {
+			// 大于一张卡只能整卡分配
 			ctr.Resources.Limits[corev1.ResourceName(EnflameResourcePercentage)] = *resource.NewQuantity(int64(100), resource.DecimalSI)
 			ctr.Resources.Limits[corev1.ResourceName(SharedResourceName)] = *resource.NewQuantity(int64(dev.factor*int(count.Value())), resource.DecimalSI)
 		} else {
@@ -139,6 +140,7 @@ func (dev *EnflameDevices) GetNodeDevices(n corev1.Node) ([]*util.DeviceInfo, er
 }
 
 func (dev *EnflameDevices) PatchAnnotations(pod *corev1.Pod, annoinput *map[string]string, pd util.PodDevices) map[string]string {
+	// 获取遂原设备
 	devlist, ok := pd[EnflameGPUDevice]
 	if ok && len(devlist) > 0 {
 		(*annoinput)[util.SupportDevices[EnflameGPUDevice]] = util.EncodePodSingleDevice(devlist)
@@ -156,6 +158,7 @@ func (dev *EnflameDevices) PatchAnnotations(pod *corev1.Pod, annoinput *map[stri
 	return *annoinput
 }
 
+// 锁不了节点，因为根本就不是自己的DP， DP不会解锁
 func (dev *EnflameDevices) LockNode(n *corev1.Node, p *corev1.Pod) error {
 	return nil
 }
@@ -175,6 +178,7 @@ func (dev *EnflameDevices) checkType(annos map[string]string, d util.DeviceUsage
 	return false, false, false
 }
 
+// TODO 这个可以抽出来
 func (dev *EnflameDevices) checkUUID(annos map[string]string, d util.DeviceUsage) bool {
 	userUUID, ok := annos[EnflameUseUUID]
 	if ok {

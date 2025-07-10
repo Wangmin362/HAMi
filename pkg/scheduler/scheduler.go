@@ -167,6 +167,7 @@ func (s *Scheduler) RegisterFromNodeAnnotations() {
 			klog.InfoS("Received stop signal, exiting RegisterFromNodeAnnotations")
 			return
 		}
+		// 获取所有节点
 		rawNodes, err := s.nodeLister.List(labelSelector)
 		if err != nil {
 			klog.ErrorS(err, "Failed to list nodes with selector", "selector", labelSelector.String())
@@ -181,6 +182,7 @@ func (s *Scheduler) RegisterFromNodeAnnotations() {
 			for devhandsk, devInstance := range device.GetDevices() {
 				klog.V(5).InfoS("Checking device health", "nodeName", val.Name, "deviceVendor", devhandsk)
 
+				// 从节点上获取设备信息
 				nodedevices, err := devInstance.GetNodeDevices(*val)
 				if err != nil {
 					klog.V(5).InfoS("Failed to get node devices", "nodeName", val.Name, "deviceVendor", devhandsk)
@@ -197,6 +199,7 @@ func (s *Scheduler) RegisterFromNodeAnnotations() {
 						klog.ErrorS(err, "Node cleanup failed", "nodeName", val.Name, "deviceVendor", devhandsk)
 					}
 
+					// 节点不健康了，移除节点的所有设备
 					s.rmNodeDevices(val.Name, devhandsk)
 					continue
 				}
@@ -238,6 +241,7 @@ func (s *Scheduler) RegisterFromNodeAnnotations() {
 				}
 			}
 		}
+		// 从Pod上获取分配的设备信息
 		_, _, err = s.getNodesUsage(&nodeNames, nil)
 		if err != nil {
 			klog.ErrorS(err, "Failed to get node usage", "nodeNames", nodeNames)

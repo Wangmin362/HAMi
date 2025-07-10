@@ -79,6 +79,7 @@ func ParseConfig(fs *flag.FlagSet) {
 func (dev *IluvatarDevices) MutateAdmission(ctr *corev1.Container, p *corev1.Pod) (bool, error) {
 	count, ok := ctr.Resources.Limits[corev1.ResourceName(IluvatarResourceCount)]
 	if ok {
+		// 大于一张卡，必须是整卡调度
 		if count.Value() > 1 {
 			ctr.Resources.Limits[corev1.ResourceName(IluvatarResourceCores)] = *resource.NewQuantity(count.Value()*int64(100), resource.DecimalSI)
 		}

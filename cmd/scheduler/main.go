@@ -113,7 +113,7 @@ func injectProfilingRoute(router *httprouter.Router) {
 
 func start() error {
 	// Initialize node lock timeout from config
-	// 节点锁的超时时间，即如果5分钟内，若一个任务没有释放锁  TODO 那么会强制释放锁
+	// 节点锁的超时时间，即如果5分钟内，若一个任务没有释放锁,那么会强制释放锁
 	nodelock.NodeLockTimeout = config.NodeLockTimeout
 	klog.InfoS("Set node lock timeout", "timeout", nodelock.NodeLockTimeout)
 	// K8S Client客户端初始化
@@ -123,13 +123,16 @@ func start() error {
 		client.WithTimeout(config.Timeout),
 	)
 
-	// 通过/device-config.yaml配置文件，初始化各种芯片的Count，算力，显存资源使用的名字
+	// 1. 通过/device-config.yaml配置文件，初始化各种芯片的Count，算力，显存资源使用的名字
+	// 2. 本质上是为了初始化各种设备，搞了一个MAP，除了保存各个设备函数
 	device.InitDevices()
 	sher = scheduler.NewScheduler()
 	sher.Start()
 	defer sher.Stop()
 
 	// start monitor metrics
+	// 1. 通过Node节点获取节点设备信息，要么是注解，要么从NodeStatus获取设备信息
+	// 2. 遍历Pod，从Pod上获取已经分配的节点资源信息，方便后续调度
 	go sher.RegisterFromNodeAnnotations()
 	go initMetrics(config.MetricsBindAddress)
 
