@@ -42,10 +42,10 @@ const (
 
 type Devices struct {
 	config           VNPUConfig
-	nodeRegisterAnno string
-	useUUIDAnno      string
-	noUseUUIDAnno    string
-	handshakeAnno    string
+	nodeRegisterAnno string // 节点上注册设备注解的名称
+	useUUIDAnno      string // 标记用户想要使用的显卡UUID的注解名称
+	noUseUUIDAnno    string // 标记用户不想使用的显卡UUID的注解名称
+	handshakeAnno    string // 标记节点握手完成的注解名称
 }
 
 type RuntimeInfo struct {
@@ -60,10 +60,12 @@ var (
 
 func (dev *Devices) trimMemory(m int64) (int64, string) {
 	for i := range dev.config.Templates {
+		// 如果能够找到，直接按照虚卡分配
 		if m <= dev.config.Templates[i].Memory {
 			return dev.config.Templates[i].Memory, dev.config.Templates[i].Name
 		}
 	}
+	// 这种情况就是整卡分配
 	if m <= dev.config.MemoryCapacity {
 		return dev.config.MemoryAllocatable, ""
 	}
@@ -84,6 +86,7 @@ func InitDevices(config []VNPUConfig) []*Devices {
 			noUseUUIDAnno:    fmt.Sprintf("hami.io/no-use-%s-uuid", commonWord),
 			handshakeAnno:    fmt.Sprintf("hami.io/node-handshake-%s", commonWord),
 		}
+		// 模板按照从小到大排序
 		sort.Slice(dev.config.Templates, func(i, j int) bool {
 			return dev.config.Templates[i].Memory < dev.config.Templates[j].Memory
 		})
@@ -106,23 +109,29 @@ func (dev *Devices) CommonWord() string {
 }
 
 func (dev *Devices) MutateAdmission(ctr *corev1.Container, p *corev1.Pod) (bool, error) {
+	// ResourceName譬如是：huawei.com/Ascend310P， huawei.com/Ascend910
 	count, ok := ctr.Resources.Limits[corev1.ResourceName(dev.config.ResourceName)]
 	if !ok {
 		return false, nil
 	}
 	trimMem := dev.config.MemoryAllocatable
+	// ResourceMemoryName譬如是：huawei.com/Ascend310P-memory， huawei.com/Ascend910-memory
 	memory, ok := ctr.Resources.Limits[corev1.ResourceName(dev.config.ResourceMemoryName)]
 	if ok {
+		// 找到一个最接近的模板的大小
 		trimMem, _ = dev.trimMemory(memory.Value())
+		// TODO 这里打印一下使用的模板会比较好，以及提示修改了显存大小
 		if trimMem <= 0 {
 			return false, fmt.Errorf("%s %d is invalid", dev.config.ResourceMemoryName, memory.Value())
 		}
 	}
+	// 虚卡不支持同时分配多个设备
 	if count.Value() > 1 {
 		if trimMem != dev.config.MemoryAllocatable {
 			return true, errors.New("vNPU nor supported for multiple devices")
 		}
 	}
+	// 重新设置一个合适的显存
 	ctr.Resources.Limits[corev1.ResourceName(dev.config.ResourceMemoryName)] = resource.MustParse(fmt.Sprint(trimMem))
 	ctr.Resources.Requests[corev1.ResourceName(dev.config.ResourceMemoryName)] = resource.MustParse(fmt.Sprint(trimMem))
 	return true, nil
@@ -152,6 +161,7 @@ func (dev *Devices) PatchAnnotations(pod *corev1.Pod, annoInput *map[string]stri
 		(*annoInput)[util.InRequestDevices[commonWord]] = util.EncodePodSingleDevice(devList)
 		(*annoInput)[util.SupportDevices[commonWord]] = util.EncodePodSingleDevice(devList)
 		(*annoInput)["predicate-time"] = strconv.FormatInt(time.Now().Unix(), 10)
+		// 表明分配的设备已经模板
 		allocateStr := fmt.Sprintf("huawei.com/%s", dev.CommonWord())
 		var rtInfo []RuntimeInfo
 		for _, dp := range devList {
@@ -175,6 +185,7 @@ func (dev *Devices) PatchAnnotations(pod *corev1.Pod, annoInput *map[string]stri
 func (dev *Devices) LockNode(n *corev1.Node, p *corev1.Pod) error {
 	found := false
 	for _, val := range p.Spec.Containers {
+		// 解析容器申请的设备信息, 如果发现是昇腾设备了，就需要进行加锁
 		if (dev.GenerateResourceRequests(&val).Nums) > 0 {
 			found = true
 			break
@@ -202,6 +213,7 @@ func (dev *Devices) ReleaseNodeLock(n *corev1.Node, p *corev1.Pod) error {
 	return nodelock.ReleaseNodeLock(n.Name, NodeLockAscend, p, false)
 }
 
+// 节点的握手信息设置为Delete_xxx_xxx
 func (dev *Devices) NodeCleanUp(nn string) error {
 	return util.MarkAnnotationsToDelete(dev.handshakeAnno, nn)
 }
@@ -213,6 +225,7 @@ func (dev *Devices) checkType(annos map[string]string, d util.DeviceUsage, n uti
 	return false, false, false
 }
 
+// 用于判断当前Pod是否有指定需要使用卡的UUID或者不想使用的卡的UUID
 func (dev *Devices) checkUUID(annos map[string]string, d util.DeviceUsage) bool {
 	userUUID, ok := annos[dev.useUUIDAnno]
 	if ok {
@@ -236,9 +249,12 @@ func (dev *Devices) CheckHealth(devType string, n *corev1.Node) (bool, bool) {
 	return util.CheckHealth(devType, n)
 }
 
+// 解析容器申请的设备信息
 func (dev *Devices) GenerateResourceRequests(ctr *corev1.Container) util.ContainerDeviceRequest {
 	klog.Infof("Counting %s devices", dev.config.CommonWord)
+	// 类似huawei.com/Ascend310P: 2
 	ascendResourceCount := corev1.ResourceName(dev.config.ResourceName)
+	// 类似huawei.com/Ascend310P-memory: 16384
 	ascendResourceMem := corev1.ResourceName(dev.config.ResourceMemoryName)
 	v, ok := ctr.Resources.Limits[ascendResourceCount]
 	if !ok {
@@ -278,10 +294,12 @@ func (dev *Devices) GenerateResourceRequests(ctr *corev1.Container) util.Contain
 	return util.ContainerDeviceRequest{}
 }
 
+// TODO 为什么这里不需要实现节点打分？
 func (dev *Devices) ScoreNode(node *corev1.Node, podDevices util.PodSingleDevice, previous []*util.DeviceUsage, policy string) float32 {
 	return 0
 }
 
+// 记录当前设备的使用情况，譬如内存使用情况，core使用情况
 func (dev *Devices) AddResourceUsage(pod *corev1.Pod, n *util.DeviceUsage, ctr *util.ContainerDevice) error {
 	n.Used++
 	n.Usedcores += ctr.Usedcores

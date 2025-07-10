@@ -45,16 +45,26 @@ import (
 )
 
 type Devices interface {
+	// CommonWord 芯片类型，不同的芯片有不同的类型
 	CommonWord() string
+	// MutateAdmission Webhook中会调用这个函数，主要用于根据芯片的特点对Pod资源的申请做一些椒盐，甚至修改动作
 	MutateAdmission(ctr *corev1.Container, pod *corev1.Pod) (bool, error)
+	// CheckHealth 检查当前节点是否健康,一般是通过节点的握手注解获取到的信息
 	CheckHealth(devType string, n *corev1.Node) (healthy bool, needUpdate bool)
+	// 节点的握手信息设置为Delete_xxx_xxx
 	NodeCleanUp(nn string) error
+	// GetNodeDevices 从节点注解获取设备信息, 因此DP在上报的时候就需要当前芯片的类型上报合适的注解上来，表明当前节点的设备信息
 	GetNodeDevices(n corev1.Node) ([]*util.DeviceInfo, error)
+	// LockNode 给节点添加锁，当前调度器分配完成之后，会给节点加锁，表明自己当前需要给这个Pod分配设备信息，后续Kubelet调用DP Allocate接口分配设备的时候需要解锁
 	LockNode(n *corev1.Node, p *corev1.Pod) error
+	// ReleaseNodeLock 释放节点锁
 	ReleaseNodeLock(n *corev1.Node, p *corev1.Pod) error
+	// GenerateResourceRequests 解析容器申请的设备信息
 	GenerateResourceRequests(ctr *corev1.Container) util.ContainerDeviceRequest
+	// PatchAnnotations 调度器给Pod分配设备后，会调用这个函数，主要用于给Pod添加一些注解，表明当前Pod想要分配的设备信息
 	PatchAnnotations(pod *corev1.Pod, annoinput *map[string]string, pd util.PodDevices) map[string]string
 	ScoreNode(node *corev1.Node, podDevices util.PodSingleDevice, previous []*util.DeviceUsage, policy string) float32
+	// 记录当前设备的使用情况，譬如内存使用情况，core使用情况
 	AddResourceUsage(pod *corev1.Pod, n *util.DeviceUsage, ctr *util.ContainerDevice) error
 	Fit(devices []*util.DeviceUsage, request util.ContainerDeviceRequest, annos map[string]string, pod *corev1.Pod, allocated *util.PodDevices) (bool, map[string]util.ContainerDevices, string)
 	// This should not be associated with a specific device object

@@ -71,12 +71,16 @@ type ContainerDeviceRequest struct {
 	Coresreq         int32
 }
 
+// 一个容器中可能申请多个设备
 type ContainerDevices []ContainerDevice
 type ContainerDeviceRequests map[string]ContainerDeviceRequest
 
 // type ContainerAllDevices map[string]ContainerDevices.
+// 一个Pod有多个容器，因此是一个数组
 type PodSingleDevice []ContainerDevices
 type PodDeviceRequests []ContainerDeviceRequests
+
+// 给Pod分配的设备，这里的key为设备类型，一个Pod可能申请多种不同类型的设备
 type PodDevices map[string]PodSingleDevice
 
 type MigTemplate struct {

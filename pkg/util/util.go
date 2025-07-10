@@ -45,9 +45,16 @@ const (
 )
 
 var (
-	// hami调度器给Pod分配的设备使用的注解信息，但是Pod还没有真正的分配设备，key为不同的芯片类型,value为使用注解的key
+	// InRequestDevices hami调度器给Pod分配的设备使用的注解信息，但是Pod还没有真正的分配设备，key为不同的芯片类型,value为使用注解的key
 	InRequestDevices map[string]string
-	// Pod真正使用的设备使用的注解信息，key为不同的芯片类型,value为使用注解的key
+	// SupportDevices 1. Pod真正使用的设备使用的注解信息，key为不同的芯片类型,value为使用注解的key
+	// 2. 所谓的支持的设备，其实就是Pod真正分配的设备，这里用于记录不同的芯片类型使用的不同的注解信息，譬如
+	// NVIDIA=hami.io/vgpu-devices-allocated, Ascend310P=hami.io/Ascend310P-devices-allocated,
+	// Ascend910B2=hami.io/Ascend910B2-devices-allocated, Ascend910B3=hami.io/Ascend910B3-devices-allocated
+	// MLU=hami.io/cambricon-mlu-devices-allocated, Enflame=hami.io/enflame-vgpu-devices-allocated,
+	// DCU=hami.io/dcu-devices-allocated, Iluvatar=hami.io/iluvatar-vgpu-devices-allocated,
+	// kunlun=hami.io/kunlun-allocated, Metax-GPU=hami.io/metax-gpu-devices-allocated,
+	// Mthreads=hami.io/mthreads-vgpu-devices-allocated
 	SupportDevices map[string]string
 	HandshakeAnnos map[string]string
 )
