@@ -32,7 +32,8 @@ type podInfo struct {
 	Name      string
 	UID       k8stypes.UID
 	NodeID    string
-	// TODO 对于非自己写的DP，如何获取Pod分配的设备信息？
+	// 1. Q: 对于非自己写的DP，如何获取Pod分配的设备信息？ A: 不管是HAMI自己的DP还是第三方DP，这里Pod分配的设备其实在调度成功之后就决定了
+	// 所以Pod分配的设备其实就是调度器分配的设备，和DP没有关系，DP也主要是执行分配设备
 	Devices util.PodDevices // 当前Pod使用的设备信息，通过解析注解获取
 	CtrIDs  []string
 }

@@ -73,11 +73,15 @@ type ContainerDeviceRequest struct {
 
 // 一个容器中可能申请多个设备
 type ContainerDevices []ContainerDevice
+
+// 一个容器可能同时申请多种类型的设备，每一种类型的设备需要单独记录，这里的key其实就是不同的芯片类型，譬如MLU, DCU等等
 type ContainerDeviceRequests map[string]ContainerDeviceRequest
 
 // type ContainerAllDevices map[string]ContainerDevices.
 // 一个Pod有多个容器，因此是一个数组
 type PodSingleDevice []ContainerDevices
+
+// 一个Pod有多个容器，这里的索引就是每个容器的索引
 type PodDeviceRequests []ContainerDeviceRequests
 
 // 给Pod分配的设备，这里的key为设备类型，一个Pod可能申请多种不同类型的设备
@@ -143,8 +147,10 @@ type DeviceInfo struct {
 }
 
 type NodeInfo struct {
-	ID      string
-	Node    *corev1.Node
+	ID   string
+	Node *corev1.Node
+	// 节点拥有的设备信息，这些信息可以通过两种方式得到：1、DP是HAMI自己提供的DP，此时可以从节点的注解当中获取芯片的情况，这种情况下，可以获取到
+	// 比较详细的设备信息，譬如内存，核心数，芯片类型等等；2、DP是第三方提供的DP，此时只能获取到一些简单的信息，只能从node.Status中获取
 	Devices []DeviceInfo
 }
 

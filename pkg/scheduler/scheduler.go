@@ -53,6 +53,7 @@ type Scheduler struct {
 	podLister  listerscorev1.PodLister
 	nodeLister listerscorev1.NodeLister
 	//Node status returned by filter
+	// TODO 和overviewstatus有啥区别？
 	cachedstatus map[string]*NodeUsage
 	nodeNotify   chan struct{}
 	//Node Overview
@@ -260,7 +261,9 @@ func (s *Scheduler) getNodesUsage(nodes *[]string, task *corev1.Pod) (*map[strin
 	overallnodeMap := make(map[string]*NodeUsage)
 	cachenodeMap := make(map[string]*NodeUsage)
 	failedNodes := make(map[string]string)
+	// TODO remote unless code  done
 	//for _, nodeID := range *nodes {
+	// 这里获取的节点其实就是通过KS8 informer机制获取到的节点信息，每个节点的设备信息会被缓存起来，
 	allNodes, err := s.ListNodes()
 	if err != nil {
 		return &overallnodeMap, failedNodes, err
@@ -269,6 +272,7 @@ func (s *Scheduler) getNodesUsage(nodes *[]string, task *corev1.Pod) (*map[strin
 	for _, node := range allNodes {
 		nodeInfo := &NodeUsage{}
 		userGPUPolicy := config.GPUSchedulerPolicy
+		// Pod上可以通过hami.io/gpu-scheduler-policy来指定GPU的调度策略，主要是通过打分来影响筛选的卡
 		if task != nil && task.Annotations != nil {
 			if value, ok := task.Annotations[policy.GPUSchedulerPolicyAnnotationKey]; ok {
 				userGPUPolicy = value
@@ -279,6 +283,7 @@ func (s *Scheduler) getNodesUsage(nodes *[]string, task *corev1.Pod) (*map[strin
 			Policy:      userGPUPolicy,
 			DeviceLists: make([]*policy.DeviceListsScore, 0),
 		}
+		// 遍历当前节点上所有的设备情况，这里获取的是节点设备总资源情况
 		for _, d := range node.Devices {
 			nodeInfo.Devices.DeviceLists = append(nodeInfo.Devices.DeviceLists, &policy.DeviceListsScore{
 				Score: 0,
@@ -307,24 +312,35 @@ func (s *Scheduler) getNodesUsage(nodes *[]string, task *corev1.Pod) (*map[strin
 		overallnodeMap[node.ID] = nodeInfo
 	}
 
+	// 1. 这里获取的Pod实际上也是从Informer得到的，这里主要是为了得到每个Pod分配的设备信息，这样就知道一个节点剩余的资源信息
+	// 2. 这里后续的逻辑主要是为了计算每个节点资源的使用情况
 	podsInfo := s.ListPodsInfo()
 	for _, p := range podsInfo {
+		// 如果当前Pod分配了当前还没有识别的节点，直接跳过。
 		node, ok := overallnodeMap[p.NodeID]
 		if !ok {
+			// TODO 添加日志
 			continue
 		}
+		// 遍历Pod分配的设备，key为不同厂商，譬如NVIDIA, MLU， DCU等等
 		for _, podsingleds := range p.Devices {
+			// 一个Pod可能有多个容器，因此这里需要遍历每个容器的设备
 			for _, ctrdevs := range podsingleds {
+				// 一个容器可能申请多个设备，这里遍历每一个设备
 				for _, udevice := range ctrdevs {
+					// 遍历节点的设备
 					for _, d := range node.Devices.DeviceLists {
 						deviceID := udevice.UUID
+						// TODO mig相关的逻辑
 						if strings.Contains(deviceID, "[") {
 							deviceID = strings.Split(deviceID, "[")[0]
 						}
-						if d.Device.ID == deviceID {
+						if d.Device.ID == deviceID { // 找到了节点上对应的设备
+							// 统计Pod资源使用情况
 							d.Device.Used++
 							d.Device.Usedmem += udevice.Usedmem
 							d.Device.Usedcores += udevice.Usedcores
+							// TODO mig处理逻辑
 							if strings.Contains(udevice.UUID, "[") {
 								if strings.Compare(d.Device.Mode, "hami-core") == 0 {
 									klog.Errorf("found a mig task running on a hami-core GPU\n")
@@ -453,6 +469,8 @@ ReleaseNodeLocks:
 
 func (s *Scheduler) Filter(args extenderv1.ExtenderArgs) (*extenderv1.ExtenderFilterResult, error) {
 	klog.InfoS("Starting schedule filter process", "pod", args.Pod.Name, "uuid", args.Pod.UID, "namespace", args.Pod.Namespace)
+	// 通过解析pod.spec.resource.limit/request解析容器对于所有资源的申请
+	// TODO 优化命名 done
 	nums := k8sutil.Resourcereqs(args.Pod)
 	total := 0
 	for _, n := range nums {
@@ -460,6 +478,7 @@ func (s *Scheduler) Filter(args extenderv1.ExtenderArgs) (*extenderv1.ExtenderFi
 			total += int(k.Nums)
 		}
 	}
+	// 如果数量为0，说明当前Pod没有申请HAMI管理的任何异构资源，因此不需要HAMI决策调度流程，直接使用原生K8S调度器调度即可
 	if total == 0 {
 		klog.V(1).InfoS("Pod does not request any resources",
 			"pod", args.Pod.Name)
@@ -471,7 +490,13 @@ func (s *Scheduler) Filter(args extenderv1.ExtenderArgs) (*extenderv1.ExtenderFi
 		}, nil
 	}
 	annos := args.Pod.Annotations
+	// 1. 这里之所以要从缓存中删除节点信息，是因为后续会给节点分配设备重新添加进来
+	// 2. TODO 同时有可能这个设备之前已经分配过卡了，因为这里在重新分配，所以也需要把之前使用的资源释放出来  不过感觉这种不大可能
 	s.delPod(args.Pod)
+	// 1. 获取当前K8S集群中每个Node资源使用情况
+	// 2. 这里的args.NodeNames是K8S调度器经过预选之后传递给HAMI的可选节点，表示这些节点已经经过内存，磁盘，CPU等资源的过滤，也就是当前
+	// Node在CPU, 内存，磁盘等方面已经满足了Pod的需求，但是需要HAMI决策，是否满足Pod的异构资源需求
+	// TODO 有哪些情况导致一个节点失败？ 节点上没有设备？
 	nodeUsage, failedNodes, err := s.getNodesUsage(args.NodeNames, args.Pod)
 	if err != nil {
 		s.recordScheduleFilterResultEvent(args.Pod, EventReasonFilteringFailed, "", err)
@@ -481,6 +506,7 @@ func (s *Scheduler) Filter(args extenderv1.ExtenderArgs) (*extenderv1.ExtenderFi
 		klog.V(5).InfoS("Nodes failed during usage retrieval",
 			"nodes", failedNodes)
 	}
+	// 给所有的节点进行打分
 	nodeScores, err := s.calcScore(nodeUsage, nums, annos, args.Pod, failedNodes)
 	if err != nil {
 		err := fmt.Errorf("calcScore failed %v for pod %v", err, args.Pod.Name)
@@ -496,7 +522,9 @@ func (s *Scheduler) Filter(args extenderv1.ExtenderArgs) (*extenderv1.ExtenderFi
 		}, nil
 	}
 	klog.V(4).Infoln("nodeScores_len=", len((*nodeScores).NodeList))
+	// 按照分数，从小到大排序
 	sort.Sort(nodeScores)
+	// 选出最高分的那个节点
 	m := (*nodeScores).NodeList[len((*nodeScores).NodeList)-1]
 	klog.InfoS("Scheduling pod to node",
 		"podNamespace", args.Pod.Namespace,

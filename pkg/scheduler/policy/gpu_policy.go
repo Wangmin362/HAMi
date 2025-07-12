@@ -32,7 +32,8 @@ type DeviceListsScore struct {
 
 type DeviceUsageList struct {
 	DeviceLists []*DeviceListsScore
-	Policy      string
+	// GPU卡的调度策略，目前之后：spread和binpack, 默认是spread. spread表示尽可能的将卡分配到不同的节点上，binpack表示尽可能的将卡分配到同一个节点上
+	Policy string
 }
 
 func (l DeviceUsageList) Len() int {

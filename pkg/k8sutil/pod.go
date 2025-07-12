@@ -39,7 +39,7 @@ func Resourcereqs(pod *corev1.Pod) (counts util.PodDeviceRequests) {
 			"containerIndex", i,
 			"containerName", pod.Spec.Containers[i].Name)
 		for idx, val := range devices {
-			// 解析当前容器请求的设备资源
+			// 1. 解析当前容器请求的设备资源, 本质上就是从pod.spec.resource.limit中通过解析容器的资源请求
 			request := val.GenerateResourceRequests(&pod.Spec.Containers[i])
 			if request.Nums > 0 {
 				cnt += request.Nums
