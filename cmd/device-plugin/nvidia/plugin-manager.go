@@ -23,7 +23,7 @@ import (
 	"github.com/Project-HAMi/HAMi/pkg/device-plugin/nvidiadevice/nvinternal/plugin/manager"
 	"github.com/Project-HAMi/HAMi/pkg/device/nvidia"
 
-	"github.com/NVIDIA/go-nvlib/pkg/nvml"
+	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	spec "github.com/NVIDIA/k8s-device-plugin/api/config/v1"
 )
 
@@ -46,7 +46,7 @@ func NewPluginManager(config *nvidia.DeviceConfig) (manager.Interface, error) {
 		return nil, fmt.Errorf("invalid device list strategy: %v", err)
 	}
 
-	cdiEnabled := deviceListStrategies.IsCDIEnabled()
+	cdiEnabled := deviceListStrategies.AnyCDIEnabled()
 
 	// CDI处理器，一种全新的机制，用于标准化挂载设备文件
 	cdiHandler, err := cdi.New(

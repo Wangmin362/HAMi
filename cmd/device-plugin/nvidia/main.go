@@ -102,7 +102,7 @@ func main() {
 			// TODO 发现设备的一种你策略，似乎英伟达支持四种方式发现设备
 			// TODO 这四种方式的区别是什么？ 每一种方式的使用场景是啥？
 			Name:    "device-list-strategy",
-			Value:   cli.NewStringSlice(string(spec.DeviceListStrategyEnvvar)),
+			Value:   cli.NewStringSlice(string(spec.DeviceListStrategyEnvVar)),
 			Usage:   "the desired strategy for passing the device list to the underlying runtime:\n\t\t[envvar | volume-mounts | cdi-annotations]",
 			EnvVars: []string{"DEVICE_LIST_STRATEGY"},
 		},

@@ -84,6 +84,7 @@ func init() {
 	rootCmd.Flags().BoolVar(&enableProfiling, "profiling", false, "Enable pprof profiling via HTTP server")
 	// TODO 是否存在什么隐患？
 	rootCmd.Flags().DurationVar(&config.NodeLockTimeout, "node-lock-timeout", time.Minute*5, "timeout for node locks")
+	rootCmd.Flags().BoolVar(&config.ForceOverwriteDefaultScheduler, "force-overwrite-default-scheduler", true, "Overwrite schedulerName in Pod Spec when set to the const DefaultSchedulerName in https://k8s.io/api/core/v1 package")
 
 	// 主要是各种不同设备的Count名称，算力名称，显存名称的初始化
 	rootCmd.PersistentFlags().AddGoFlagSet(device.GlobalFlagSet())
