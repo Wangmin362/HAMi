@@ -78,7 +78,7 @@ type ContainerDevices []ContainerDevice
 type ContainerDeviceRequests map[string]ContainerDeviceRequest
 
 // type ContainerAllDevices map[string]ContainerDevices.
-// 一个Pod有多个容器，因此是一个数组
+// 一个Pod有多个容器，因此是一个数组，索引为容器索引，即pod.spec.Contaienr[idx]
 type PodSingleDevice []ContainerDevices
 
 // 一个Pod有多个容器，这里的索引就是每个容器的索引

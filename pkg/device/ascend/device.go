@@ -164,8 +164,10 @@ func (dev *Devices) PatchAnnotations(pod *corev1.Pod, annoInput *map[string]stri
 		// 表明分配的设备已经模板
 		allocateStr := fmt.Sprintf("huawei.com/%s", dev.CommonWord())
 		var rtInfo []RuntimeInfo
-		for _, dp := range devList {
-			for _, val := range dp {
+		// 这里把设备进行了扁平化，即不再区分容器这个维度，而是直接以Pod的维度显示设备
+		// TODO 如果没有容器的维度，这里咋区分不同的容器分配的设备？
+		for _, dp := range devList { // 遍历不同的容器
+			for _, val := range dp { // 遍历一个容器申请的多个设备
 				_, temp := dev.trimMemory(int64(val.Usedmem))
 				rtInfo = append(rtInfo, RuntimeInfo{
 					UUID: val.UUID,
