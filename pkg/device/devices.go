@@ -508,6 +508,10 @@ func DecodePodDevices(checklist map[string]string, annos map[string]string) (Pod
 }
 
 func PlatternMIG(n *MigInUse, templates []Geometry, templateIdx int) {
+	if templateIdx < 0 || templateIdx >= len(templates) {
+		klog.ErrorS(nil, "MIG template index out of range", "templateIdx", templateIdx, "templateCount", len(templates))
+		return
+	}
 	var err error
 	for _, val := range templates[templateIdx] {
 		count := 0

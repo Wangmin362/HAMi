@@ -644,9 +644,17 @@ func (s *Scheduler) getNodesUsage(nodes *[]string, task *corev1.Pod) (*map[strin
 									d.Device.Health = false
 									continue
 								}
-								tmpIdx, Instance, _ := device.ExtractMigTemplatesFromUUID(udevice.UUID)
+								tmpIdx, Instance, err := device.ExtractMigTemplatesFromUUID(udevice.UUID)
+								if err != nil {
+									klog.ErrorS(err, "skipping device with malformed MIG UUID", "uuid", udevice.UUID)
+									continue
+								}
 								if len(d.Device.MigUsage.UsageList) == 0 {
 									device.PlatternMIG(&d.Device.MigUsage, d.Device.MigTemplate, tmpIdx)
+								}
+								if Instance < 0 || Instance >= len(d.Device.MigUsage.UsageList) {
+									klog.ErrorS(nil, "skipping device with out-of-range MIG instance", "uuid", udevice.UUID, "instance", Instance, "usageListLen", len(d.Device.MigUsage.UsageList))
+									continue
 								}
 								d.Device.MigUsage.UsageList[Instance].InUse = true
 								klog.V(5).Infoln("add mig usage", d.Device.MigUsage, "template=", d.Device.MigTemplate, "uuid=", d.Device.ID)

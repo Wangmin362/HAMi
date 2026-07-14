@@ -128,6 +128,76 @@ func Test_getNodesUsage(t *testing.T) {
 	assert.Equal(t, v.Devices.DeviceLists[0].Device.Usedcores, int32(20))
 }
 
+// Test_getNodesUsage_MalformedMIGUUID reproduces the crash where a pod carrying
+// a malformed MIG UUID makes getNodesUsage panic. Because getNodesUsage runs in
+// the background register loop (no recover), such a panic kills the whole
+// scheduler process. getNodesUsage must skip the bad device instead of panicking.
+func Test_getNodesUsage_MalformedMIGUUID(t *testing.T) {
+	tests := []struct {
+		name string
+		uuid string
+		mig  []device.Geometry
+	}{
+		{
+			// ExtractMigTemplatesFromUUID returns an error (no '-' inside the
+			// brackets); the error used to be discarded and templateIdx=-1 was
+			// passed to PlatternMIG -> templates[-1].
+			name: "malformed uuid, error discarded",
+			uuid: "GPU-MIG33[999]",
+			mig:  nil,
+		},
+		{
+			// ExtractMigTemplatesFromUUID succeeds but the instance position is
+			// out of range for the built UsageList -> UsageList[999].
+			name: "instance index out of range",
+			uuid: "GPU-MIG33[0-999]",
+			mig:  []device.Geometry{{{Name: "1g.10gb", Core: 10, Memory: 10, Count: 1}}},
+		},
+		{
+			// ExtractMigTemplatesFromUUID succeeds but the template index is
+			// out of range for MigTemplate -> PlatternMIG indexes templates[5].
+			name: "template index out of range",
+			uuid: "GPU-MIG33[5-0]",
+			mig:  []device.Geometry{{{Name: "1g.10gb", Core: 10, Memory: 10, Count: 1}}},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			nodeMage := newNodeManager()
+			nodeMage.addNode("node-mig", &device.NodeInfo{
+				ID:   "node-mig",
+				Node: &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-mig"}},
+				Devices: map[string][]device.DeviceInfo{
+					nvidia.NvidiaGPUDevice: {{
+						ID:          "GPU-MIG33",
+						Index:       0,
+						Count:       10,
+						Devmem:      1024,
+						Devcore:     100,
+						Mode:        "mig",
+						MIGTemplate: tc.mig,
+						Health:      true,
+					}},
+				},
+			})
+			podMap := device.NewPodManager()
+			podMap.AddPod(&corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{UID: "poison", Name: "poison-pod", Namespace: "default"},
+			}, "node-mig", device.PodDevices{
+				"NVIDIA": device.PodSingleDevice{
+					[]device.ContainerDevice{{Idx: 0, UUID: tc.uuid, Usedmem: 4096}},
+				},
+			})
+			s := Scheduler{nodeManager: nodeMage, podManager: podMap}
+			nodes := []string{"node-mig"}
+			require.NotPanics(t, func() {
+				_, _, _, err := s.getNodesUsage(&nodes, nil)
+				require.NoError(t, err)
+			})
+		})
+	}
+}
+
 // test case matrix
 /**
 | pod name     | node name|  pod status | annotations                 |             result                  |
