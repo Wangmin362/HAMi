@@ -422,11 +422,14 @@ func (s *Scheduler) register(labelSelector labels.Selector, printedLog map[strin
 				nodeInfo.Devices[deviceinfo.DeviceVendor] = append(nodeInfo.Devices[deviceinfo.DeviceVendor], *deviceinfo)
 			}
 			s.addNode(val.Name, nodeInfo)
-			if s.nodes[val.Name] != nil && len(nodeInfo.Devices) > 0 {
+			s.mutex.RLock()
+			cachedNode, exists := s.nodes[val.Name]
+			s.mutex.RUnlock()
+			if exists && cachedNode != nil && len(nodeInfo.Devices) > 0 {
 				if printedLog[val.Name] {
-					klog.V(5).InfoS("Node device updated", "nodeName", val.Name, "deviceVendor", devhandsk, "nodeInfo", nodeInfo, "totalDevices", s.nodes[val.Name].Devices)
+					klog.V(5).InfoS("Node device updated", "nodeName", val.Name, "deviceVendor", devhandsk, "nodeInfo", nodeInfo, "totalDevices", cachedNode.Devices)
 				} else {
-					klog.InfoS("Node device added", "nodeName", val.Name, "deviceVendor", devhandsk, "nodeInfo", nodeInfo, "totalDevices", s.nodes[val.Name].Devices)
+					klog.InfoS("Node device added", "nodeName", val.Name, "deviceVendor", devhandsk, "nodeInfo", nodeInfo, "totalDevices", cachedNode.Devices)
 					printedLog[val.Name] = true
 				}
 			}
