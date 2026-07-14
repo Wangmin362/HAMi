@@ -110,11 +110,25 @@ func (m *nodeManager) rmNode(nodeID string) {
 	}
 }
 
+// deepCopyNodeInfo returns a copy that callers can read without holding the
+// lock, so they never iterate the shared Devices map while register() writes it.
+func deepCopyNodeInfo(nodeInfo *device.NodeInfo) *device.NodeInfo {
+	nodeInfoCopy := &device.NodeInfo{
+		ID:      nodeInfo.ID,
+		Node:    nodeInfo.Node.DeepCopy(),
+		Devices: make(map[string][]device.DeviceInfo, len(nodeInfo.Devices)),
+	}
+	for k, v := range nodeInfo.Devices {
+		nodeInfoCopy.Devices[k] = device.DeepCopyDeviceInfos(v)
+	}
+	return nodeInfoCopy
+}
+
 func (m *nodeManager) GetNode(nodeID string) (*device.NodeInfo, error) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
-	if n, ok := m.nodes[nodeID]; ok {
-		return n, nil
+	if n, ok := m.nodes[nodeID]; ok && n != nil && n.Node != nil {
+		return deepCopyNodeInfo(n), nil
 	}
 	return &device.NodeInfo{}, fmt.Errorf("node %v not found", nodeID)
 }
@@ -128,15 +142,7 @@ func (m *nodeManager) ListNodes() (map[string]*device.NodeInfo, error) {
 			klog.Warningf("ListNodes nodes copy step skip node(%s) because of nil NodeInfo or NodeInfo.Node", nodeID)
 			continue
 		}
-		nodeInfoCopy := &device.NodeInfo{
-			ID:      nodeInfo.ID,
-			Node:    nodeInfo.Node.DeepCopy(),
-			Devices: make(map[string][]device.DeviceInfo),
-		}
-		for k, v := range nodeInfo.Devices {
-			nodeInfoCopy.Devices[k] = device.DeepCopyDeviceInfos(v)
-		}
-		nodesCopy[nodeID] = nodeInfoCopy
+		nodesCopy[nodeID] = deepCopyNodeInfo(nodeInfo)
 	}
 	return nodesCopy, nil
 }
