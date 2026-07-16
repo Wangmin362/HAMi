@@ -237,6 +237,8 @@ func TestProcessMigConfigs(t *testing.T) {
 }
 
 func TestWatchAndRegisterDisableSignal(t *testing.T) {
+	stopCh := make(chan any)
+	defer close(stopCh) // let the goroutine exit at the end of the test
 	disableCh := make(chan bool, 1)
 	ackCh := make(chan bool, 1)
 
@@ -249,7 +251,7 @@ func TestWatchAndRegisterDisableSignal(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		plugin.WatchAndRegister(disableCh, ackCh)
+		plugin.WatchAndRegister(stopCh, disableCh, ackCh)
 	}()
 
 	go func() {
@@ -267,6 +269,30 @@ func TestWatchAndRegisterDisableSignal(t *testing.T) {
 		// Success: received the ack
 	case <-timeAfter(3 * time.Second):
 		t.Fatal("timed out waiting for disable ack from WatchAndRegister")
+	}
+}
+
+// TestWatchAndRegisterStopExit verifies WatchAndRegister returns when stop is
+// closed, so it is not leaked on every plugin restart. A closed stop is picked
+// before RegisterInAnnotation runs, so no NVML access is needed.
+func TestWatchAndRegisterStopExit(t *testing.T) {
+	stopCh := make(chan any)
+	disableCh := make(chan bool, 1)
+	ackCh := make(chan bool, 1)
+	close(stopCh)
+
+	plugin := &NvidiaDevicePlugin{}
+	done := make(chan struct{})
+	go func() {
+		plugin.WatchAndRegister(stopCh, disableCh, ackCh)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// WatchAndRegister exited on the stop signal.
+	case <-timeAfter(3 * time.Second):
+		t.Fatal("WatchAndRegister did not exit after stop was closed (goroutine leak)")
 	}
 }
 
