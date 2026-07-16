@@ -2104,6 +2104,46 @@ func TestComputeBestCombination(t *testing.T) {
 	assert.Equal(t, result[1].UUID, "gpu2")
 }
 
+// A candidate UUID absent from nodeInfo (its card was dropped since the snapshot)
+// used to nil-deref deviceScoreMap[uuid]; it should now be skipped, not panic.
+func TestComputeWorstSingleCard_CandidateMissingFromNode(t *testing.T) {
+	nodeInfo := &device.NodeInfo{
+		Devices: map[string][]device.DeviceInfo{
+			NvidiaGPUDevice: {
+				{ID: "gpu0", DevicePairScore: device.DevicePairScore{Scores: map[string]int{"gpu1": 100}}},
+				{ID: "gpu1", DevicePairScore: device.DevicePairScore{Scores: map[string]int{"gpu0": 100}}},
+			},
+		},
+	}
+	tmpDevs := map[string]device.ContainerDevices{
+		NvidiaGPUDevice: {{UUID: "gpu0"}, {UUID: "gpu1"}, {UUID: "gpu2"}},
+	}
+	req := device.ContainerDeviceRequest{Type: NvidiaGPUDevice}
+	result := computeWorstSingleCard(nodeInfo, req, tmpDevs)
+	assert.Equal(t, len(result), 1)
+}
+
+// Same as above for the combination path.
+func TestComputeBestCombination_CandidateMissingFromNode(t *testing.T) {
+	nodeInfo := &device.NodeInfo{
+		Devices: map[string][]device.DeviceInfo{
+			NvidiaGPUDevice: {
+				{ID: "gpu0", DevicePairScore: device.DevicePairScore{Scores: map[string]int{"gpu1": 100}}},
+				{ID: "gpu1", DevicePairScore: device.DevicePairScore{Scores: map[string]int{"gpu0": 100}}},
+			},
+		},
+	}
+	combinations := []device.ContainerDevices{
+		{{UUID: "gpu0"}, {UUID: "gpu1"}},
+		// gpu2 (missing from nodeInfo) sits in the dev1 position, which is what nil-derefs.
+		{{UUID: "gpu2"}, {UUID: "gpu0"}},
+	}
+	result := computeBestCombination(nodeInfo, combinations)
+	assert.Equal(t, len(result), 2)
+	assert.Equal(t, result[0].UUID, "gpu0")
+	assert.Equal(t, result[1].UUID, "gpu1")
+}
+
 func TestCustomFilterRule_NonMig(t *testing.T) {
 	dev := InitNvidiaDevice(NvidiaConfig{})
 	devusage := &device.DeviceUsage{Mode: ""}

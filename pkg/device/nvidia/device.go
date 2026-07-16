@@ -938,7 +938,11 @@ func computeWorstSingleCard(nodeInfo *device.NodeInfo, request device.ContainerD
 
 	for _, dev1 := range devices {
 		totalScore := 0
+		// dev1 comes from a snapshot; skip it if it is no longer in the node's score map.
 		scoreMapDev1 := deviceScoreMap[dev1.UUID]
+		if scoreMapDev1 == nil {
+			continue
+		}
 		for _, dev2 := range devices {
 			if dev1.UUID == dev2.UUID {
 				continue
@@ -963,7 +967,11 @@ func computeBestCombination(nodeInfo *device.NodeInfo, combinations []device.Con
 
 		for i := 0; i < len(partition)-1; i++ {
 			dev1 := partition[i]
+			// dev1 comes from a snapshot; skip it if it is no longer in the node's score map.
 			scoreMapDev1 := deviceScoreMap[dev1.UUID]
+			if scoreMapDev1 == nil {
+				continue
+			}
 			for z := i + 1; z < len(partition); z++ {
 				dev2 := partition[z]
 				totalScore += scoreMapDev1.Scores[dev2.UUID]
