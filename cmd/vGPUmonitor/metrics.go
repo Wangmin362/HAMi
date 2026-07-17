@@ -440,40 +440,43 @@ func (cc ClusterManagerCollector) collectPodAndContainerInfo(ch chan<- prometheu
 		return fmt.Errorf("failed to list pods: %w", err)
 	}
 
-	containers := cc.ClusterManager.containerLister.ListContainers()
-	containerMap := make(map[string][]*nvidia.ContainerUsage) // podUID -> containers
-	for _, c := range containers {
-		if c.Info != nil && c.PodUID != "" {
-			containerMap[c.PodUID] = append(containerMap[c.PodUID], c)
-		}
-	}
-
-	nowSec := time.Now().Unix()
-
-	// Iterate through each Pod
-	for _, pod := range pods {
-		podContainers, found := containerMap[string(pod.UID)]
-		if !found {
-			klog.V(5).Infof("No containers found for pod %s/%s", pod.Namespace, pod.Name)
-			continue
+	// Hold the lister lock while the shared map is iterated and c.Info (mmap) is read,
+	// so this scrape cannot race Update() deleting/munmapping entries.
+	cc.ClusterManager.containerLister.RangeContainersLocked(func(containers map[string]*nvidia.ContainerUsage) {
+		containerMap := make(map[string][]*nvidia.ContainerUsage) // podUID -> containers
+		for _, c := range containers {
+			if c.Info != nil && c.PodUID != "" {
+				containerMap[c.PodUID] = append(containerMap[c.PodUID], c)
+			}
 		}
 
-		klog.V(5).Infof("Processing Pod %s/%s", pod.Namespace, pod.Name)
+		nowSec := time.Now().Unix()
 
-		// Iterate through each container in the Pod
-		for _, ctr := range pod.Spec.Containers {
-			// Find the matching container
-			for _, c := range podContainers {
-				if c.ContainerName == ctr.Name {
-					klog.V(5).Infof("Processing Container %s in Pod %s/%s", ctr.Name, pod.Namespace, pod.Name)
-					if err := cc.collectContainerMetrics(ch, pod, ctr, c, nowSec); err != nil {
-						klog.Errorf("Failed to collect metrics for container %s in Pod %s/%s: %v", ctr.Name, pod.Namespace, pod.Name, err)
+		// Iterate through each Pod
+		for _, pod := range pods {
+			podContainers, found := containerMap[string(pod.UID)]
+			if !found {
+				klog.V(5).Infof("No containers found for pod %s/%s", pod.Namespace, pod.Name)
+				continue
+			}
+
+			klog.V(5).Infof("Processing Pod %s/%s", pod.Namespace, pod.Name)
+
+			// Iterate through each container in the Pod
+			for _, ctr := range pod.Spec.Containers {
+				// Find the matching container
+				for _, c := range podContainers {
+					if c.ContainerName == ctr.Name {
+						klog.V(5).Infof("Processing Container %s in Pod %s/%s", ctr.Name, pod.Namespace, pod.Name)
+						if err := cc.collectContainerMetrics(ch, pod, ctr, c, nowSec); err != nil {
+							klog.Errorf("Failed to collect metrics for container %s in Pod %s/%s: %v", ctr.Name, pod.Namespace, pod.Name, err)
+						}
+						break // Exit the inner loop after finding the matching container
 					}
-					break // Exit the inner loop after finding the matching container
 				}
 			}
 		}
-	}
+	})
 
 	klog.V(4).Infof("Finished collecting metrics for %d pods", len(pods))
 	return nil

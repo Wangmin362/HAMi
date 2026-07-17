@@ -157,6 +157,14 @@ func (l *ContainerLister) ListContainers() map[string]*ContainerUsage {
 	return l.containers
 }
 
+// RangeContainersLocked runs fn with the container map while holding the lister lock,
+// so callers can read the mmap-backed Info without racing Update()'s delete/munmap.
+func (l *ContainerLister) RangeContainersLocked(fn func(containers map[string]*ContainerUsage)) {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	fn(l.containers)
+}
+
 func (l *ContainerLister) Clientset() *kubernetes.Clientset {
 	return l.clientset
 }
