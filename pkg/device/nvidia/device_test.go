@@ -2104,6 +2104,30 @@ func TestComputeBestCombination(t *testing.T) {
 	assert.Equal(t, result[1].UUID, "gpu2")
 }
 
+// A node without pair-score data scores every combination 0. computeBestCombination
+// must still return one combination; returning an empty set made Fit report success
+// with zero devices, so the pod scheduled but got no GPU.
+func TestComputeBestCombination_AllZeroScores(t *testing.T) {
+	nodeInfo := &device.NodeInfo{
+		Devices: map[string][]device.DeviceInfo{
+			NvidiaGPUDevice: {
+				{ID: "gpu0", DevicePairScore: device.DevicePairScore{Scores: map[string]int{}}},
+				{ID: "gpu1", DevicePairScore: device.DevicePairScore{Scores: map[string]int{}}},
+				{ID: "gpu2", DevicePairScore: device.DevicePairScore{Scores: map[string]int{}}},
+			},
+		},
+	}
+	combinations := []device.ContainerDevices{
+		{{UUID: "gpu0"}, {UUID: "gpu1"}},
+		{{UUID: "gpu0"}, {UUID: "gpu2"}},
+		{{UUID: "gpu1"}, {UUID: "gpu2"}},
+	}
+	result := computeBestCombination(nodeInfo, combinations)
+	assert.Equal(t, len(result), 2)
+	assert.Equal(t, result[0].UUID, "gpu0")
+	assert.Equal(t, result[1].UUID, "gpu1")
+}
+
 func TestCustomFilterRule_NonMig(t *testing.T) {
 	dev := InitNvidiaDevice(NvidiaConfig{})
 	devusage := &device.DeviceUsage{Mode: ""}
