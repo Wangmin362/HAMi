@@ -954,7 +954,8 @@ func computeWorstSingleCard(nodeInfo *device.NodeInfo, request device.ContainerD
 }
 
 func computeBestCombination(nodeInfo *device.NodeInfo, combinations []device.ContainerDevices) device.ContainerDevices {
-	bestScore := 0
+	// Start below zero (like computeWorstSingleCard) so a combination is still selected when every pair score is 0.
+	bestScore := -1
 	bestCombination := device.ContainerDevices{}
 	deviceScoreMap := getDevicePairScoreMap(nodeInfo)
 	// Iterate through all combinations to find the one with the highest score
