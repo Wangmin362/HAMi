@@ -339,7 +339,7 @@ func (plugin *NvidiaDevicePlugin) Start(kubeletSocket string) error {
 	}()
 
 	go func() {
-		plugin.WatchAndRegister(plugin.disableWatchAndRegister, plugin.ackDisableWatchAndRegister)
+		plugin.WatchAndRegister(plugin.stop, plugin.disableWatchAndRegister, plugin.ackDisableWatchAndRegister)
 	}()
 
 	if migApplied {

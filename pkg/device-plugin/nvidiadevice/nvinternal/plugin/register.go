@@ -238,13 +238,25 @@ func (plugin *NvidiaDevicePlugin) RegisterInAnnotation() (bool, error) {
 	return true, err
 }
 
-func (plugin *NvidiaDevicePlugin) WatchAndRegister(disableNVML <-chan bool, ackDisableWatchAndRegister chan<- bool) {
+func (plugin *NvidiaDevicePlugin) WatchAndRegister(stop <-chan any, disableNVML <-chan bool, ackDisableWatchAndRegister chan<- bool) {
 	klog.Info("Starting WatchAndRegister")
 	errorSleepInterval := time.Second * 5
 	successSleepInterval := time.Second * 30
+	// sleep returns true when stop is signalled, so the caller can exit the loop.
+	sleep := func(d time.Duration) bool {
+		select {
+		case <-stop:
+			return true
+		case <-time.After(d):
+			return false
+		}
+	}
 	var disableWatchAndRegister bool
 	for {
 		select {
+		case <-stop:
+			klog.Info("Received stop signal, stopping WatchAndRegister")
+			return
 		case disable := <-disableNVML:
 			if disable {
 				// when received disableNVML signal, stop the watch and register all the time
@@ -261,20 +273,26 @@ func (plugin *NvidiaDevicePlugin) WatchAndRegister(disableNVML <-chan bool, ackD
 		if disableWatchAndRegister {
 			klog.V(3).Info("WatchAndRegister is disabled, sleeping")
 			ackDisableWatchAndRegister <- true
-			time.Sleep(successSleepInterval)
+			if sleep(successSleepInterval) {
+				return
+			}
 			continue
 		}
 		changed, err := plugin.RegisterInAnnotation()
 		if err != nil {
 			klog.Errorf("Failed to register annotation: %v. Retrying in %v...", err, errorSleepInterval)
-			time.Sleep(errorSleepInterval)
+			if sleep(errorSleepInterval) {
+				return
+			}
 		} else {
 			if changed {
 				klog.Infof("Successfully updated node annotation. Next check in %v...", successSleepInterval)
 			} else {
 				klog.V(3).Infof("No device changes detected. Next check in %v...", successSleepInterval)
 			}
-			time.Sleep(successSleepInterval)
+			if sleep(successSleepInterval) {
+				return
+			}
 		}
 	}
 }
